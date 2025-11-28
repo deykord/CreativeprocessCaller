@@ -7,6 +7,9 @@ let prospects = [];
 // TODO: Integrate with a real database (e.g., MongoDB, PostgreSQL, MySQL)
 let callLogs = [];
 
+// Call Recordings Storage
+let callRecordings = [];
+
 /**
  * Service to handle data persistence. 
  * In a real app, replace these methods with Mongoose/Sequelize calls.
@@ -51,6 +54,27 @@ class MockDatabase {
     };
     callLogs.push(newLog);
     return newLog;
+  }
+
+  // --- Call Recordings ---
+
+  async saveCallRecording(data) {
+    const recording = {
+      id: uuidv4(),
+      timestamp: new Date().toISOString(),
+      ...data
+    };
+    callRecordings.push(recording);
+    console.log('Recording saved:', recording.id);
+    return recording;
+  }
+
+  async getCallRecordings(callSid) {
+    return callRecordings.filter(r => r.callSid === callSid);
+  }
+
+  async getAllCallRecordings() {
+    return callRecordings;
   }
 
   async getStats() {
