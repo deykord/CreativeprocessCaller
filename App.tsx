@@ -8,7 +8,6 @@ import { PowerDialer } from './components/PowerDialer';
 import { Settings } from './components/Settings';
 import { CallHistory } from './components/CallHistory';
 import { Login } from './components/Login';
-import { Signup } from './components/Signup';
 import { Prospect, CallState, AgentStats, CallLog, User } from './types';
 import { INITIAL_PROSPECTS, INITIAL_STATS } from './constants';
 import { LayoutGrid, Users, Phone, Settings as SettingsIcon, LogOut, Bell, History, Zap, Keyboard, Sun, Moon } from 'lucide-react';
@@ -425,7 +424,6 @@ const App: React.FC = () => {
     <Router>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/signup" element={<Signup />} />
         <Route 
           path="/" 
           element={

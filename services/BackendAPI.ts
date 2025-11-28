@@ -10,11 +10,15 @@ export const backendAPI = {
   
   // --- Authentication ---
   
-  async signup(email: string, password: string, firstName: string, lastName: string): Promise<AuthResponse> {
-    const res = await fetch(`${API_BASE_URL}/auth/signup`, {
+  async createUser(email: string, firstName: string, lastName: string, role?: string): Promise<AuthResponse> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/auth/create-user`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, firstName, lastName })
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      },
+      body: JSON.stringify({ email, firstName, lastName, role })
     });
     return res.json();
   },

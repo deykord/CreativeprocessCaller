@@ -104,16 +104,7 @@ export const Login: React.FC = () => {
         </form>
 
         <div className="auth-footer">
-          <p>
-            Don't have an account?{' '}
-            <button
-              type="button"
-              onClick={() => navigate('/signup')}
-              className="link-button"
-            >
-              Sign up here
-            </button>
-          </p>
+          <p className="text-gray-500">Admin creates user accounts</p>
         </div>
       </div>
     </div>

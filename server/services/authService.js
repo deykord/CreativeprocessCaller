@@ -9,40 +9,32 @@ const TOKEN_EXPIRY = '24h';
 
 class AuthService {
   /**
-   * Register a new user
+   * Create a new user (admin only)
    */
-  async signup(email, password, firstName, lastName) {
+  async createUser(email, firstName, lastName, role = 'agent') {
     // Check if user already exists
     const existingUser = Array.from(users.values()).find(u => u.email === email);
     if (existingUser) {
       throw new Error('User already exists with this email');
     }
 
-    // Create new user (in production, hash password with bcrypt)
+    // Create new user with auto-generated password
     const userId = uuidv4();
+    const password = email.split('@')[0] + '123'; // Default password: part_of_email+123
     const user = {
       id: userId,
       email,
       firstName,
       lastName,
-      password, // WARNING: In production, hash this with bcrypt!
+      password,
+      role: role || 'agent',
       createdAt: new Date().toISOString(),
     };
 
     users.set(userId, user);
-    console.log(`User registered: ${email}`);
+    console.log(`User created by admin: ${email} (password: ${password})`);
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { userId, email },
-      JWT_SECRET,
-      { expiresIn: TOKEN_EXPIRY }
-    );
-
-    return {
-      user: this._sanitizeUser(user),
-      token,
-    };
+    return this._sanitizeUser(user);
   }
 
   /**
@@ -64,7 +56,7 @@ class AuthService {
 
     // Generate JWT token
     const token = jwt.sign(
-      { userId: user.id, email: user.email },
+      { userId: user.id, email: user.email, role: user.role },
       JWT_SECRET,
       { expiresIn: TOKEN_EXPIRY }
     );
@@ -107,7 +99,7 @@ class AuthService {
    */
   _sanitizeUser(user) {
     const { password, ...sanitized } = user;
-    return sanitized;
+    return { ...sanitized, role: user.role || 'agent' };
   }
 }
 

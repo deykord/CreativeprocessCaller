@@ -1,23 +1,30 @@
 const authService = require('../services/authService');
 
-exports.signup = async (req, res) => {
+exports.createUser = async (req, res) => {
   try {
-    const { email, password, firstName, lastName } = req.body;
+    const { email, firstName, lastName, role } = req.body;
 
     // Validation
-    if (!email || !password || !firstName || !lastName) {
-      return res.status(400).json({ error: 'All fields are required' });
+    if (!email || !firstName || !lastName) {
+      return res.status(400).json({ success: false, error: 'Email, first name, and last name are required' });
     }
 
-    const { user, token } = await authService.signup(email, password, firstName, lastName);
+    // Check if requester is admin
+    const userRole = req.user?.role || req.decoded?.role;
+    if (userRole !== 'admin') {
+      return res.status(403).json({ success: false, error: 'Only admins can create users' });
+    }
+
+    const user = await authService.createUser(email, firstName, lastName, role || 'agent');
+    const defaultPassword = email.split('@')[0] + '123';
 
     res.json({
       success: true,
       user,
-      token,
+      message: `User created successfully. Default password: ${defaultPassword}`,
     });
   } catch (error) {
-    console.error('Signup error:', error);
+    console.error('Create user error:', error);
     res.status(400).json({ success: false, error: error.message });
   }
 };
