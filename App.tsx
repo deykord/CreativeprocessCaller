@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { DashboardStats } from './components/DashboardStats';
 import { ProspectTable } from './components/ProspectTable';
 import { ActiveCallInterface } from './components/ActiveCallInterface';
@@ -6,7 +7,9 @@ import { ManualDialer } from './components/ManualDialer';
 import { PowerDialer } from './components/PowerDialer';
 import { Settings } from './components/Settings';
 import { CallHistory } from './components/CallHistory';
-import { Prospect, CallState, AgentStats, CallLog } from './types';
+import { Login } from './components/Login';
+import { Signup } from './components/Signup';
+import { Prospect, CallState, AgentStats, CallLog, User } from './types';
 import { INITIAL_PROSPECTS, INITIAL_STATS } from './constants';
 import { LayoutGrid, Users, Phone, Settings as SettingsIcon, LogOut, Bell, History, Zap, Keyboard, Sun, Moon } from 'lucide-react';
 
@@ -20,7 +23,7 @@ const activeTwilioService = liveTwilioService;
 
 type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'history' | 'settings';
 
-const App: React.FC = () => {
+const Dashboard: React.FC = () => {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [prospects, setProspects] = useState<Prospect[]>(INITIAL_PROSPECTS);
   const [stats, setStats] = useState<AgentStats>(INITIAL_STATS);
@@ -30,10 +33,17 @@ const App: React.FC = () => {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isTwilioReady, setIsTwilioReady] = useState(false);
   const [twilioError, setTwilioError] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
     const initSystem = async () => {
       try {
+        // Get current user
+        const currentUser = await backendAPI.getCurrentUser();
+        if (currentUser) {
+          setUser(currentUser);
+        }
+
         if (USE_BACKEND) {
           const fetchedProspects = await backendAPI.getProspects();
           setProspects(fetchedProspects);
@@ -208,13 +218,20 @@ const App: React.FC = () => {
 
   const powerDialerQueue = prospects.filter(p => p.status === 'New');
 
+  const handleLogout = async () => {
+    await backendAPI.logout();
+    window.location.href = '/login';
+  };
+
   const renderContent = () => {
     switch (currentView) {
       case 'dashboard':
         return (
           <>
             <div className="mb-8">
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Good Morning, Agent</h2>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                Good Morning, {user?.firstName || 'Agent'}
+              </h2>
               <p className="text-gray-500 dark:text-gray-400">Here is your daily performance overview.</p>
             </div>
             <DashboardStats stats={stats} />
@@ -316,7 +333,10 @@ const App: React.FC = () => {
           </nav>
 
           <div className="p-4 border-t border-slate-800">
-            <button className="flex items-center justify-center lg:justify-start w-full text-slate-400 hover:text-white transition">
+            <button 
+              onClick={handleLogout}
+              className="flex items-center justify-center lg:justify-start w-full text-slate-400 hover:text-white transition"
+            >
               <LogOut size={20} />
               <span className="ml-3 hidden lg:block">Logout</span>
             </button>
@@ -348,7 +368,7 @@ const App: React.FC = () => {
                 <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
               </button>
               <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-200 rounded-full flex items-center justify-center font-bold text-sm">
-                AG
+                {user?.firstName.charAt(0) || 'A'}{user?.lastName.charAt(0) || 'G'}
               </div>
             </div>
           </header>
@@ -374,6 +394,48 @@ const App: React.FC = () => {
         </main>
       </div>
     </div>
+  );
+};
+
+const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const token = backendAPI.getAuthToken();
+      if (token) {
+        const user = await backendAPI.getCurrentUser();
+        setIsAuthenticated(!!user);
+      } else {
+        setIsAuthenticated(false);
+      }
+    };
+    checkAuth();
+  }, []);
+
+  if (isAuthenticated === null) {
+    return <div className="flex items-center justify-center h-screen">Loading...</div>;
+  }
+
+  return isAuthenticated ? <>{children}</> : <Navigate to="/login" />;
+};
+
+const App: React.FC = () => {
+  return (
+    <Router>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
+        <Route 
+          path="/" 
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          } 
+        />
+      </Routes>
+    </Router>
   );
 };
 

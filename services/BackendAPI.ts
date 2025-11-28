@@ -1,5 +1,5 @@
 
-import { Prospect, CallLog, TwilioPhoneNumber } from '../types';
+import { Prospect, CallLog, TwilioPhoneNumber, AuthResponse, User } from '../types';
 
 const API_BASE_URL = 'http://localhost:3001/api';
 
@@ -8,7 +8,58 @@ const API_BASE_URL = 'http://localhost:3001/api';
  */
 export const backendAPI = {
   
-  // --- Auth ---
+  // --- Authentication ---
+  
+  async signup(email: string, password: string, firstName: string, lastName: string): Promise<AuthResponse> {
+    const res = await fetch(`${API_BASE_URL}/auth/signup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, firstName, lastName })
+    });
+    return res.json();
+  },
+
+  async login(email: string, password: string): Promise<AuthResponse> {
+    const res = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    return res.json();
+  },
+
+  async logout(): Promise<void> {
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('user');
+  },
+
+  async getCurrentUser(): Promise<User | null> {
+    const token = localStorage.getItem('authToken');
+    if (!token) return null;
+    
+    const res = await fetch(`${API_BASE_URL}/auth/profile`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    
+    if (!res.ok) {
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      return null;
+    }
+    
+    const data = await res.json();
+    return data.user;
+  },
+
+  getAuthToken(): string | null {
+    return localStorage.getItem('authToken');
+  },
+
+  isAuthenticated(): boolean {
+    return !!localStorage.getItem('authToken');
+  },
+
+  // --- Twilio Token ---
   
   async getToken(identity?: string): Promise<string> {
     const res = await fetch(`${API_BASE_URL}/token`, {
