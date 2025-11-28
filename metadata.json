@@ -1,0 +1,7 @@
+{
+  "name": "Creativeprocess.io",
+  "description": "A high-velocity outbound sales dialer featuring prospect management, one-click calling, and automated call logging.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

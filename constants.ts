@@ -1,0 +1,66 @@
+import { Prospect, AgentStats } from './types';
+
+export const INITIAL_STATS: AgentStats = {
+  callsMade: 34,
+  connections: 12,
+  appointmentsSet: 3,
+  talkTime: 145,
+};
+
+export const INITIAL_PROSPECTS: Prospect[] = [
+  {
+    id: '1',
+    firstName: 'Sarah',
+    lastName: 'Connor',
+    title: 'CTO',
+    company: 'Skynet Cyberdyne',
+    phone: '+1 (555) 123-4567',
+    email: 'sarah@skynet.com',
+    status: 'New',
+    timezone: 'PST',
+  },
+  {
+    id: '2',
+    firstName: 'James',
+    lastName: 'Holden',
+    title: 'Captain',
+    company: 'Rocinante Transport',
+    phone: '+1 (555) 987-6543',
+    email: 'j.holden@rocinante.com',
+    status: 'New',
+    timezone: 'EST',
+  },
+  {
+    id: '3',
+    firstName: 'Walter',
+    lastName: 'White',
+    title: 'Lead Chemist',
+    company: 'Gray Matter Tech',
+    phone: '+1 (505) 555-0192',
+    email: 'heisenberg@graymatter.com',
+    status: 'Qualified',
+    timezone: 'MST',
+  },
+  {
+    id: '4',
+    firstName: 'Diana',
+    lastName: 'Prince',
+    title: 'Curator',
+    company: 'Louvre Museum',
+    phone: '+1 (202) 555-0144',
+    email: 'diana@themyscira.gov',
+    status: 'Lost',
+    timezone: 'EST',
+  },
+  {
+    id: '5',
+    firstName: 'Tony',
+    lastName: 'Stark',
+    title: 'CEO',
+    company: 'Stark Industries',
+    phone: '+1 (212) 555-0199',
+    email: 'tony@stark.com',
+    status: 'New',
+    timezone: 'EST',
+  },
+];
