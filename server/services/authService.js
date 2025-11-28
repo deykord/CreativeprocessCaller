@@ -1,8 +1,6 @@
 const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
-
-// Simple in-memory user store (replace with database in production)
-const users = new Map();
+const { users } = require('./mockDatabase');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 const TOKEN_EXPIRY = '24h';

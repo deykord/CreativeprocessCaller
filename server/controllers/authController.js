@@ -77,3 +77,41 @@ exports.getProfile = async (req, res) => {
     res.status(404).json({ success: false, error: error.message });
   }
 };
+
+exports.updateProfile = async (req, res) => {
+  try {
+    const userId = req.userId; // Set by auth middleware
+    const { firstName, lastName, email, bio, profilePicture, workHours } = req.body;
+
+    const user = await authService.getUser(userId);
+    
+    // Update user fields
+    if (firstName) user.firstName = firstName;
+    if (lastName) user.lastName = lastName;
+    if (email) user.email = email;
+    if (bio !== undefined) user.bio = bio;
+    if (profilePicture !== undefined) user.profilePicture = profilePicture;
+    if (workHours) user.workHours = workHours;
+    user.updatedAt = new Date().toISOString();
+
+    // Update in storage
+    const { users } = require('../services/mockDatabase');
+    users.set(userId, user);
+
+    res.json({ success: true, user });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(400).json({ success: false, error: error.message });
+  }
+};
+
+exports.getTeamMembers = async (req, res) => {
+  try {
+    const { users } = require('../services/mockDatabase');
+    const teamMembers = Array.from(users.values());
+    res.json(teamMembers);
+  } catch (error) {
+    console.error('Get team members error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};

@@ -8,8 +8,10 @@ import { PowerDialer } from './components/PowerDialer';
 import { Settings } from './components/Settings';
 import { CallHistory } from './components/CallHistory';
 import { TeamManagement } from './components/TeamManagement';
+import { Header } from './components/Header';
 import { Login } from './components/Login';
-import { Prospect, CallState, AgentStats, CallLog, User } from './types';
+import UserProfile from './components/UserProfile';
+import { Prospect, CallState, AgentStats, CallLog, User, TwilioPhoneNumber } from './types';
 import { INITIAL_PROSPECTS, INITIAL_STATS } from './constants';
 import { LayoutGrid, Users, Phone, Settings as SettingsIcon, LogOut, Bell, History, Zap, Keyboard, Sun, Moon } from 'lucide-react';
 
@@ -21,7 +23,7 @@ import { backendAPI } from './services/BackendAPI';
 const USE_BACKEND = true;
 const activeTwilioService = liveTwilioService;
 
-type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'history' | 'settings' | 'team-management';
+type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'history' | 'settings' | 'team-management' | 'profile';
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -35,6 +37,7 @@ const Dashboard: React.FC = () => {
   const [isTwilioReady, setIsTwilioReady] = useState(false);
   const [twilioError, setTwilioError] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [twilioNumbers, setTwilioNumbers] = useState<TwilioPhoneNumber[]>([]);
 
   useEffect(() => {
     const initSystem = async () => {
@@ -54,9 +57,10 @@ const Dashboard: React.FC = () => {
 
           // Fetch available Twilio numbers and set first one as default
           try {
-            const twilioNumbers = await backendAPI.getTwilioNumbers();
-            if (twilioNumbers && twilioNumbers.length > 0) {
-              const firstNumber = twilioNumbers[0].phoneNumber;
+            const twilioNumbersList = await backendAPI.getTwilioNumbers();
+            if (twilioNumbersList && twilioNumbersList.length > 0) {
+              setTwilioNumbers(twilioNumbersList);
+              const firstNumber = twilioNumbersList[0].phoneNumber;
               setCallerId(firstNumber);
               console.log('Set default Caller ID to:', firstNumber);
             }
@@ -277,6 +281,14 @@ const Dashboard: React.FC = () => {
         );
       case 'team-management':
         return <TeamManagement />;
+      case 'profile':
+        return user ? (
+          <UserProfile 
+            user={user}
+            onBack={() => setCurrentView('dashboard')}
+            onUpdate={setUser}
+          />
+        ) : null;
       default:
         return <div>View not found</div>;
     }
@@ -358,34 +370,16 @@ const Dashboard: React.FC = () => {
         </aside>
 
         <main className="flex-1 flex flex-col overflow-hidden relative">
-          <header className="h-16 bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between px-8 shadow-sm z-10 transition-colors duration-200">
-            <h1 className="text-xl font-bold text-gray-800 dark:text-white capitalize">
-              {currentView.replace('-', ' ')}
-            </h1>
-            <div className="flex items-center space-x-4">
-              <div className="hidden md:flex items-center px-3 py-1 bg-gray-100 dark:bg-slate-700 rounded-full text-xs text-gray-500 dark:text-gray-300 border border-gray-200 dark:border-slate-600">
-                <Phone size={12} className="mr-1" />
-                {USE_BACKEND ? <span className="text-green-500 font-bold mr-1">● Live</span> : <span className="text-amber-500 font-bold mr-1">○ Mock</span>}
-                Caller ID: {callerId || 'Not Set'}
-              </div>
-              
-              <button 
-                onClick={() => setIsDarkMode(!isDarkMode)}
-                className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-full transition-colors"
-                title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
-              >
-                {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
-              </button>
-
-              <button className="relative p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-full transition-colors">
-                <Bell size={12} />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-              </button>
-              <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-200 rounded-full flex items-center justify-center font-bold text-sm">
-                {user?.firstName.charAt(0) || 'A'}{user?.lastName.charAt(0) || 'G'}
-              </div>
-            </div>
-          </header>
+          <Header 
+            title={currentView.replace('-', ' ')}
+            user={user}
+            isDarkMode={isDarkMode}
+            onDarkModeToggle={() => setIsDarkMode(!isDarkMode)}
+            callerId={callerId}
+            onCallerIdChange={setCallerId}
+            twilioNumbers={twilioNumbers}
+            onViewProfile={() => setCurrentView('profile')}
+          />
 
           <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50 dark:bg-slate-900 transition-colors duration-200">
             <div className="max-w-7xl mx-auto h-full">

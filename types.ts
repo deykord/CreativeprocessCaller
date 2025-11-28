@@ -56,7 +56,44 @@ export interface User {
   email: string;
   firstName: string;
   lastName: string;
+  role?: 'admin' | 'agent' | 'manager';
+  profilePicture?: string;
+  bio?: string;
+  workHours?: WorkHours;
   createdAt: string;
+  updatedAt?: string;
+}
+
+export interface WorkHours {
+  monday?: { start: string; end: string };
+  tuesday?: { start: string; end: string };
+  wednesday?: { start: string; end: string };
+  thursday?: { start: string; end: string };
+  friday?: { start: string; end: string };
+  saturday?: { start: string; end: string };
+  sunday?: { start: string; end: string };
+}
+
+export interface Message {
+  id: string;
+  senderId: string;
+  senderName: string;
+  recipientId: string;
+  recipientName: string;
+  content: string;
+  timestamp: string;
+  read: boolean;
+}
+
+export interface Notification {
+  id: string;
+  userId: string;
+  title: string;
+  message: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+  read: boolean;
+  createdAt: string;
+  link?: string;
 }
 
 export interface AuthResponse {

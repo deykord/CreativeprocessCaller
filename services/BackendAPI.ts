@@ -1,5 +1,5 @@
 
-import { Prospect, CallLog, TwilioPhoneNumber, AuthResponse, User } from '../types';
+import { Prospect, CallLog, TwilioPhoneNumber, AuthResponse, User, Message } from '../types';
 
 const API_BASE_URL = 'http://localhost:3001/api';
 
@@ -125,6 +125,53 @@ export const backendAPI = {
 
   async getTwilioNumbers(): Promise<TwilioPhoneNumber[]> {
     const res = await fetch(`${API_BASE_URL}/voice/numbers`);
+    return res.json();
+  },
+
+  // --- Profile & User Management ---
+
+  async updateProfile(user: User): Promise<User> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/auth/profile`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      },
+      body: JSON.stringify(user)
+    });
+    const data = await res.json();
+    return data.user;
+  },
+
+  async getTeamMembers(): Promise<User[]> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/auth/team-members`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    return res.json();
+  },
+
+  // --- Messaging ---
+
+  async sendMessage(senderId: string, recipientId: string, content: string): Promise<Message> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      },
+      body: JSON.stringify({ senderId, recipientId, content })
+    });
+    return res.json();
+  },
+
+  async getMessages(userId: string): Promise<Message[]> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/messages?userId=${userId}`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
     return res.json();
   }
 };

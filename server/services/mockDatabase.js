@@ -10,6 +10,12 @@ let callLogs = [];
 // Call Recordings Storage
 let callRecordings = [];
 
+// Users Map (exported for authService and other controllers)
+const users = new Map();
+
+// Messages Storage
+let messages = [];
+
 /**
  * Service to handle data persistence. 
  * In a real app, replace these methods with Mongoose/Sequelize calls.
@@ -88,3 +94,5 @@ class MockDatabase {
 }
 
 module.exports = new MockDatabase();
+module.exports.users = users;
+module.exports.messages = messages;
