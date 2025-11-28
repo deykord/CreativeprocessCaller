@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { DashboardStats } from './components/DashboardStats';
 import { ProspectTable } from './components/ProspectTable';
 import { ActiveCallInterface } from './components/ActiveCallInterface';
@@ -23,6 +23,7 @@ const activeTwilioService = liveTwilioService;
 type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'history' | 'settings';
 
 const Dashboard: React.FC = () => {
+  const navigate = useNavigate();
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [prospects, setProspects] = useState<Prospect[]>(INITIAL_PROSPECTS);
   const [stats, setStats] = useState<AgentStats>(INITIAL_STATS);
@@ -219,7 +220,7 @@ const Dashboard: React.FC = () => {
 
   const handleLogout = async () => {
     await backendAPI.logout();
-    window.location.href = '/login';
+    navigate('/login');
   };
 
   const renderContent = () => {

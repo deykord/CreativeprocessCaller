@@ -103,4 +103,26 @@ class AuthService {
   }
 }
 
-module.exports = new AuthService();
+const authService = new AuthService();
+
+// Initialize with default admin user if none exists
+const adminEmail = 'admin@creativeprocess.io';
+const adminUser = Array.from(users.values()).find(u => u.email === adminEmail);
+if (!adminUser) {
+  const adminId = uuidv4();
+  const adminPassword = 'admin123';
+  users.set(adminId, {
+    id: adminId,
+    email: adminEmail,
+    firstName: 'Admin',
+    lastName: 'User',
+    password: adminPassword,
+    role: 'admin',
+    createdAt: new Date().toISOString(),
+  });
+  console.log('Default admin user created:');
+  console.log('  Email:', adminEmail);
+  console.log('  Password:', adminPassword);
+}
+
+module.exports = authService;
