@@ -3,9 +3,10 @@ import { Phone, Delete } from 'lucide-react';
 
 interface Props {
   onCall: (phoneNumber: string) => void;
+  disabled?: boolean;
 }
 
-export const ManualDialer: React.FC<Props> = ({ onCall }) => {
+export const ManualDialer: React.FC<Props> = ({ onCall, disabled }) => {
   const [number, setNumber] = useState('');
 
   const handleDigit = (digit: string) => {
@@ -17,6 +18,7 @@ export const ManualDialer: React.FC<Props> = ({ onCall }) => {
   };
 
   const handleCall = () => {
+    if (disabled) return;
     if (number.length > 3) {
       onCall(number);
     }
@@ -59,9 +61,9 @@ export const ManualDialer: React.FC<Props> = ({ onCall }) => {
 
         <button
           onClick={handleCall}
-          disabled={number.length < 3}
+          disabled={number.length < 3 || disabled}
           className={`w-full py-4 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-lg transition transform active:scale-95 ${
-            number.length < 3 
+            number.length < 3 || disabled
               ? 'bg-gray-300 dark:bg-slate-600 cursor-not-allowed' 
               : 'bg-green-500 hover:bg-green-600 shadow-green-200 dark:shadow-green-900/20'
           }`}

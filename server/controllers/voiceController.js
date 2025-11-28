@@ -1,17 +1,76 @@
+// Add Twilio Numbers fetcher
+const { getTwilioNumbers } = require('../services/twilioNumbers');
 const VoiceResponse = require('twilio').twiml.VoiceResponse;
 const config = require('../config/config');
-const db = require('../services/mockDatabase');
 
-exports.handleVoiceRequest = (req, res) => {
+// Cache for Twilio numbers to avoid repeated API calls
+let cachedNumbers = null;
+let cacheTimestamp = null;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+async function getDefaultCallerId() {
+  try {
+    // Check if cache is still valid
+    if (cachedNumbers && cacheTimestamp && Date.now() - cacheTimestamp < CACHE_DURATION) {
+      if (cachedNumbers.length > 0) {
+        return cachedNumbers[0].phoneNumber;
+      }
+    }
+
+    // Fetch fresh numbers
+    cachedNumbers = await getTwilioNumbers();
+    cacheTimestamp = Date.now();
+
+    if (cachedNumbers.length > 0) {
+      console.log('Default Caller ID set to:', cachedNumbers[0].phoneNumber);
+      return cachedNumbers[0].phoneNumber;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error getting default Caller ID:', error);
+    return null;
+  }
+}
+
+exports.handleTwilioNumbers = async (req, res) => {
+  try {
+    const numbers = await getTwilioNumbers();
+    cachedNumbers = numbers;
+    cacheTimestamp = Date.now();
+    res.json(numbers);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch Twilio numbers' });
+  }
+};
+
+exports.handleVoiceRequest = async (req, res) => {
   const To = req.body.To;
+  const callIdFromRequest = req.body.callerId; // May be passed from browser
   // const From = req.body.From; 
 
   const response = new VoiceResponse();
 
   if (To) {
     // This is an outbound call from the browser to a phone number
+    // Priority: 1) callerId from request, 2) env variable, 3) fetch default
+    let callerId = callIdFromRequest || config.twilio.callerId;
+    
+    if (!callerId) {
+      callerId = await getDefaultCallerId();
+    }
+    
+    if (!callerId) {
+      console.error('ERROR: No Caller ID available (TWILIO_CALLER_ID not set and no phone numbers in account)');
+      res.type('text/xml');
+      res.send(new VoiceResponse().say('Error: Caller ID is not configured. Please configure Twilio phone numbers.').toString());
+      return;
+    }
+
+    console.log('Making outbound call with Caller ID:', callerId, 'To:', To);
+
     const dial = response.dial({
-      callerId: config.twilio.callerId,
+      callerId: callerId,
       record: 'record-from-answer',
       recordingStatusCallback: `/api/voice/recording`,
       statusCallback: `/api/voice/status`,

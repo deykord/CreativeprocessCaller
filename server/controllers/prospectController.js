@@ -1,3 +1,5 @@
+// TODO: Integrate with real database for prospects
+
 const db = require('../services/mockDatabase');
 
 exports.getProspects = async (req, res) => {
@@ -11,8 +13,8 @@ exports.getProspects = async (req, res) => {
 
 exports.createProspect = async (req, res) => {
   try {
-    const prospect = await db.createProspect(req.body);
-    res.status(201).json(prospect);
+    const newProspect = await db.createProspect(req.body);
+    res.json(newProspect);
   } catch (error) {
     res.status(500).json({ error: 'Failed to create prospect' });
   }

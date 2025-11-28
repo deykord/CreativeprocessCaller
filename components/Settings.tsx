@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { twilioService } from '../services/mockTwilio';
+import { backendAPI } from '../services/BackendAPI';
 import { TwilioPhoneNumber } from '../types';
 import { Check, RefreshCw, Smartphone, Server } from 'lucide-react';
 
@@ -15,7 +15,7 @@ export const Settings: React.FC<Props> = ({ currentCallerId, onSetCallerId }) =>
   const fetchNumbers = async () => {
     setLoading(true);
     try {
-      const nums = await twilioService.getIncomingPhoneNumbers();
+      const nums = await backendAPI.getTwilioNumbers();
       setNumbers(nums);
       // Default to first number if none selected
       if (!currentCallerId && nums.length > 0) {
@@ -36,14 +36,14 @@ export const Settings: React.FC<Props> = ({ currentCallerId, onSetCallerId }) =>
     <div className="max-w-4xl mx-auto p-6">
       <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Settings</h2>
       
-      {/* System Status Mock */}
+      {/* System Status Live */}
       <div className="mb-6 p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-900 rounded-xl flex items-center">
         <div className="p-2 bg-emerald-100 dark:bg-emerald-800 rounded-full mr-3">
           <Server size={18} className="text-emerald-600 dark:text-emerald-300" />
         </div>
         <div>
           <h4 className="text-sm font-bold text-emerald-800 dark:text-emerald-300">System Operational</h4>
-          <p className="text-xs text-emerald-600 dark:text-emerald-400">Frontend connected to Mock Service Layer. (Ready for Backend Integration)</p>
+          <p className="text-xs text-emerald-600 dark:text-emerald-400">Frontend connected to Live Service Layer.</p>
         </div>
       </div>
 

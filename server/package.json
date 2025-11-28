@@ -18,7 +18,8 @@
     "uuid": "^9.0.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.0.1",
+    "vite": "^7.2.4"
   },
   "engines": {
     "node": ">=16.0.0"

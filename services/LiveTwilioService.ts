@@ -10,9 +10,26 @@ class LiveTwilioService {
   private device: Device | null = null;
   private currentCall: Call | null = null;
   private statusCallback: ((state: CallState) => void) | null = null;
+  private tokenRefreshInterval: NodeJS.Timeout | null = null;
+  private getTokenCallback: (() => Promise<string>) | null = null;
 
   registerStatusCallback(cb: (state: CallState) => void) {
     this.statusCallback = cb;
+  }
+
+  registerTokenRefresh(getToken: () => Promise<string>) {
+    this.getTokenCallback = getToken;
+  }
+
+  private async refreshToken() {
+    if (!this.getTokenCallback || !this.device) return;
+    try {
+      const newToken = await this.getTokenCallback();
+      this.device.updateToken(newToken);
+      console.log('Twilio token refreshed successfully');
+    } catch (err) {
+      console.error('Failed to refresh Twilio token:', err);
+    }
   }
 
   /**
@@ -26,7 +43,19 @@ class LiveTwilioService {
       });
 
       this.device.on('registered', () => console.log('Twilio Device Ready'));
-      this.device.on('error', (error) => console.error('Twilio Device Error:', error));
+      this.device.on('error', (error) => {
+        console.error('Twilio Device Error:', error);
+        // Log the error code for debugging
+        if (error && typeof error === 'object') {
+          console.error('Error code:', (error as any).code);
+          console.error('Error message:', (error as any).message);
+          // If token is invalid, try to refresh it
+          if ((error as any).code === 20101) { // AccessTokenInvalid
+            console.log('Attempting to refresh token due to invalid token error');
+            this.refreshToken();
+          }
+        }
+      });
       
       this.device.on('incoming', (call) => {
         // Handle incoming calls here if needed
@@ -36,6 +65,14 @@ class LiveTwilioService {
       });
 
       await this.device.register();
+
+      // Refresh token every 50 minutes (tokens are typically valid for 1 hour)
+      if (this.getTokenCallback) {
+        this.tokenRefreshInterval = setInterval(() => {
+          this.refreshToken();
+        }, 50 * 60 * 1000);
+      }
+
       return this;
     } catch (err) {
       console.error("Failed to initialize Twilio device", err);
@@ -83,6 +120,10 @@ class LiveTwilioService {
   }
 
   disconnect() {
+    if (this.tokenRefreshInterval) {
+      clearInterval(this.tokenRefreshInterval);
+      this.tokenRefreshInterval = null;
+    }
     if (this.currentCall) {
       this.currentCall.disconnect();
     } else if (this.device) {

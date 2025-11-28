@@ -66,5 +66,10 @@ export const backendAPI = {
   async getIncomingNumbers(): Promise<TwilioPhoneNumber[]> {
     const res = await fetch(`${API_BASE_URL}/voice/incoming-numbers`);
     return res.json();
+  },
+
+  async getTwilioNumbers(): Promise<TwilioPhoneNumber[]> {
+    const res = await fetch(`${API_BASE_URL}/voice/numbers`);
+    return res.json();
   }
 };

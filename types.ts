@@ -50,8 +50,3 @@ export interface TwilioPhoneNumber {
   };
 }
 
-export interface TwilioDeviceMock {
-  connect: (params: any) => Promise<any>;
-  disconnectAll: () => void;
-  state: string;
-}

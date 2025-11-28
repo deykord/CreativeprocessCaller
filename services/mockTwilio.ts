@@ -49,27 +49,9 @@ class MockTwilioService {
    * In a real app, this would call your backend, which calls client.incomingPhoneNumbers.list()
    */
   async getIncomingPhoneNumbers(): Promise<TwilioPhoneNumber[]> {
-    await new Promise(resolve => setTimeout(resolve, 600)); // Simulate API latency
-    return [
-      {
-        sid: 'PN123456789',
-        phoneNumber: '+15551002001',
-        friendlyName: '(555) 100-2001',
-        capabilities: { voice: true, sms: true, mms: true }
-      },
-      {
-        sid: 'PN987654321',
-        phoneNumber: '+15551002002',
-        friendlyName: '(555) 100-2002',
-        capabilities: { voice: true, sms: true, mms: false }
-      },
-      {
-        sid: 'PN456123789',
-        phoneNumber: '+14155550099',
-        friendlyName: 'San Francisco HQ',
-        capabilities: { voice: true, sms: true, mms: true }
-      }
-    ];
+    // TODO: Integrate with backend API to fetch real Twilio phone numbers
+    // Example: return await fetch('/api/twilio/numbers').then(res => res.json());
+    return [];
   }
 }
 
