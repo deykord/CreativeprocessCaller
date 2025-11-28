@@ -7,6 +7,7 @@ import { ManualDialer } from './components/ManualDialer';
 import { PowerDialer } from './components/PowerDialer';
 import { Settings } from './components/Settings';
 import { CallHistory } from './components/CallHistory';
+import { TeamManagement } from './components/TeamManagement';
 import { Login } from './components/Login';
 import { Prospect, CallState, AgentStats, CallLog, User } from './types';
 import { INITIAL_PROSPECTS, INITIAL_STATS } from './constants';
@@ -20,7 +21,7 @@ import { backendAPI } from './services/BackendAPI';
 const USE_BACKEND = true;
 const activeTwilioService = liveTwilioService;
 
-type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'history' | 'settings';
+type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'history' | 'settings' | 'team-management';
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -274,6 +275,8 @@ const Dashboard: React.FC = () => {
             onSetCallerId={setCallerId} 
           />
         );
+      case 'team-management':
+        return <TeamManagement />;
       default:
         return <div>View not found</div>;
     }
@@ -330,6 +333,17 @@ const Dashboard: React.FC = () => {
               active={currentView === 'settings'} 
               onClick={() => setCurrentView('settings')} 
             />
+            {user?.role === 'admin' && (
+              <>
+                <div className="my-2 border-t border-slate-700"></div>
+                <NavItem 
+                  icon={<Users size={20} />} 
+                  label="Team Management" 
+                  active={currentView === 'team-management'} 
+                  onClick={() => setCurrentView('team-management')} 
+                />
+              </>
+            )}
           </nav>
 
           <div className="p-4 border-t border-slate-800">
