@@ -13,20 +13,30 @@ app.use(helmet());
 // CORS Middleware
 const allowedOrigins = [
   'http://localhost:5173',
-  'https://salescallagent.my'
+  'http://localhost:3000',
+  'https://salescallagent.my',
+  'https://www.salescallagent.my'
 ];
 app.use(cors({
   origin: function(origin, callback) {
     // Allow requests with no origin (like mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
+    
+    // In development, allow all localhost variants
+    if (process.env.NODE_ENV === 'development' || origin.includes('localhost')) {
+      return callback(null, true);
+    }
+    
+    // In production, check against allowed list
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     } else {
       return callback(new Error('Not allowed by CORS'), false);
     }
   },
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-  credentials: true
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 // Logging Middleware

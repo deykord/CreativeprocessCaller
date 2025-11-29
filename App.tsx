@@ -1,31 +1,43 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { DashboardStats } from './components/DashboardStats';
 import { ProspectTable } from './components/ProspectTable';
 import { ActiveCallInterface } from './components/ActiveCallInterface';
 import { ManualDialer } from './components/ManualDialer';
-import { PowerDialer } from './components/PowerDialer';
+import PowerDialer from './components/PowerDialer';
 import { Settings } from './components/Settings';
 import { CallHistory } from './components/CallHistory';
-import { TeamManagement } from './components/TeamManagement';
 import { Header } from './components/Header';
 import { Login } from './components/Login';
 import UserProfile from './components/UserProfile';
 import { Prospect, CallState, AgentStats, CallLog, User, TwilioPhoneNumber } from './types';
 import { INITIAL_PROSPECTS, INITIAL_STATS } from './constants';
-import { LayoutGrid, Users, Phone, Settings as SettingsIcon, LogOut, Bell, History, Zap, Keyboard, Sun, Moon } from 'lucide-react';
+import { LayoutGrid, Users, Phone, Settings as SettingsIcon, LogOut, Bell, History, Zap, Keyboard, Sun, Moon, List } from 'lucide-react';
 
 // SERVICES
 import { liveTwilioService } from './services/LiveTwilioService';
 import { backendAPI } from './services/BackendAPI';
 
+// Lazy load heavy components
+const LeadListManager = React.lazy(() => import('./components/LeadListManager').then(m => ({ default: m.LeadListManager })));
+const TeamManagement = React.lazy(() => import('./components/TeamManagement').then(m => ({ default: m })));
+
+// Loading fallback component
+const LoadingSpinner = () => (
+  <div className="flex items-center justify-center h-screen">
+    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400"></div>
+  </div>
+);
+
 // --- CONFIGURATION ---
 const USE_BACKEND = true;
 const activeTwilioService = liveTwilioService;
 
-type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'history' | 'settings' | 'team-management' | 'profile';
+
+type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'history' | 'settings' | 'team-management' | 'profile' | 'lead-lists';
 
 const Dashboard: React.FC = () => {
+    const [powerDialerDispositionSaved, setPowerDialerDispositionSaved] = useState(false);
   const navigate = useNavigate();
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [prospects, setProspects] = useState<Prospect[]>(INITIAL_PROSPECTS);
@@ -38,6 +50,7 @@ const Dashboard: React.FC = () => {
   const [twilioError, setTwilioError] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [twilioNumbers, setTwilioNumbers] = useState<TwilioPhoneNumber[]>([]);
+  const [teamMembers, setTeamMembers] = useState<User[]>([]);
 
   useEffect(() => {
     const initSystem = async () => {
@@ -54,6 +67,14 @@ const Dashboard: React.FC = () => {
 
           const fetchedHistory = await backendAPI.getCallHistory();
           setCallHistory(fetchedHistory);
+
+          // Fetch team members
+          try {
+            const members = await backendAPI.getTeamMembers();
+            setTeamMembers(members);
+          } catch (err) {
+            console.warn('Failed to fetch team members:', err);
+          }
 
           // Fetch available Twilio numbers and set first one as default
           try {
@@ -107,12 +128,15 @@ const Dashboard: React.FC = () => {
       console.error("Call failed", err);
       alert("Call failed to connect. Check console for details.");
       setCurrentCall(null);
+      // Auto-advance PowerDialer if open
+      setPowerDialerDispositionSaved(true);
+      if (window.__powerDialerAdvanceToNext) window.__powerDialerAdvanceToNext();
     }
   };
 
   const handleManualCall = async (phoneNumber: string) => {
     if (!isTwilioReady) {
-      alert("Twilio is not ready. Please wait for initialization.");
+          return <PowerDialer queue={powerDialerQueue} onCall={handleCall} disabled={!isTwilioReady} onAdvanceToNext={() => { if (window.__powerDialerAdvanceToNext) window.__powerDialerAdvanceToNext(); }} />;
       return;
     }
     const manualProspect: Prospect = {
@@ -207,9 +231,22 @@ const Dashboard: React.FC = () => {
         }).filter(Boolean);
 
         if (USE_BACKEND) {
+          const prospectIds: string[] = [];
           for (const p of newProspects) {
-            await backendAPI.createProspect(p);
+            const created = await backendAPI.createProspect(p);
+            prospectIds.push(created.id);
           }
+          
+          // Create a lead list for this import
+          if (prospectIds.length > 0) {
+            try {
+              const listName = `${file.name} - ${new Date().toLocaleDateString()}`;
+              await backendAPI.createLeadList(listName, `Imported from ${file.name}`, prospectIds);
+            } catch (err) {
+              console.warn('Failed to create lead list for imported prospects:', err);
+            }
+          }
+          
           const refreshed = await backendAPI.getProspects();
           setProspects(refreshed);
         } else {
@@ -267,7 +304,14 @@ const Dashboard: React.FC = () => {
           </>
         );
       case 'power-dialer':
-        return <PowerDialer queue={powerDialerQueue} onCall={handleCall} disabled={!isTwilioReady} />;
+          return <PowerDialer 
+            queue={powerDialerQueue} 
+            onCall={handleCall} 
+            disabled={!isTwilioReady} 
+            onAdvanceToNext={() => { if (window.__powerDialerAdvanceToNext) window.__powerDialerAdvanceToNext(); }}
+            dispositionSaved={powerDialerDispositionSaved}
+            setDispositionSaved={setPowerDialerDispositionSaved}
+          />;
       case 'manual-dialer':
         return <ManualDialer onCall={handleManualCall} disabled={!isTwilioReady} />;
       case 'history':
@@ -280,7 +324,7 @@ const Dashboard: React.FC = () => {
           />
         );
       case 'team-management':
-        return <TeamManagement />;
+        return <Suspense fallback={<LoadingSpinner />}><TeamManagement /></Suspense>;
       case 'profile':
         return user ? (
           <UserProfile 
@@ -289,6 +333,8 @@ const Dashboard: React.FC = () => {
             onUpdate={setUser}
           />
         ) : null;
+      case 'lead-lists':
+        return <Suspense fallback={<LoadingSpinner />}><LeadListManager prospects={prospects} teamMembers={teamMembers} /></Suspense>;
       default:
         return <div>View not found</div>;
     }
@@ -338,6 +384,12 @@ const Dashboard: React.FC = () => {
               label="Call History" 
               active={currentView === 'history'} 
               onClick={() => setCurrentView('history')} 
+            />
+            <NavItem 
+              icon={<List size={20} />} 
+              label="Lead Lists" 
+              active={currentView === 'lead-lists'} 
+              onClick={() => setCurrentView('lead-lists')} 
             />
             <NavItem 
               icon={<SettingsIcon size={20} />} 
@@ -448,8 +500,8 @@ const App: React.FC = () => {
 
 const NavItem: React.FC<{ icon: React.ReactNode; label: string; active?: boolean; onClick: () => void }> = ({ icon, label, active, onClick }) => (
   <button 
-    onClick={onClick}
     className={`w-full flex items-center justify-center lg:justify-start px-4 py-3 rounded-lg transition-all duration-200 ${active ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+    onClick={onClick}
   >
     {icon}
     <span className="ml-3 font-medium hidden lg:block">{label}</span>

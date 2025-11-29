@@ -1,7 +1,17 @@
 
-import { Prospect, CallLog, TwilioPhoneNumber, AuthResponse, User, Message } from '../types';
+import { Prospect, CallLog, TwilioPhoneNumber, AuthResponse, User, Message, LeadList, LeadListPermission } from '../types';
 
-const API_BASE_URL = 'http://localhost:3001/api';
+// Determine API URL based on environment
+const getAPIBaseURL = () => {
+  // In production, use same origin (backend serves from same domain)
+  if (typeof window !== 'undefined' && !window.location.hostname.includes('localhost')) {
+    return `${window.location.protocol}//${window.location.host}/api`;
+  }
+  // In development, use localhost:3001
+  return 'http://localhost:3001/api';
+};
+
+const API_BASE_URL = getAPIBaseURL();
 
 /**
  * Connects to the Node.js / Express Backend
@@ -173,5 +183,86 @@ export const backendAPI = {
       headers: { 'Authorization': `Bearer ${token || ''}` }
     });
     return res.json();
+  },
+
+  // --- Lead Lists & Permissions ---
+
+  async createLeadList(name: string, description: string, prospects: string[]): Promise<LeadList> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/lead-lists`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      },
+      body: JSON.stringify({ name, description, prospects })
+    });
+    return res.json();
+  },
+
+  async getLeadLists(): Promise<LeadList[]> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/lead-lists`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    return res.json();
+  },
+
+  async getLeadList(id: string): Promise<LeadList> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/lead-lists/${id}`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    return res.json();
+  },
+
+  async updateLeadList(id: string, updates: Partial<LeadList>): Promise<LeadList> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/lead-lists/${id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      },
+      body: JSON.stringify(updates)
+    });
+    return res.json();
+  },
+
+  async deleteLeadList(id: string): Promise<void> {
+    const token = localStorage.getItem('authToken');
+    await fetch(`${API_BASE_URL}/lead-lists/${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+  },
+
+  async addLeadListPermission(listId: string, targetUserId: string, canView: boolean, canEdit: boolean): Promise<LeadListPermission> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/lead-lists/${listId}/permissions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      },
+      body: JSON.stringify({ targetUserId, canView, canEdit })
+    });
+    return res.json();
+  },
+
+  async getLeadListPermissions(listId: string): Promise<LeadListPermission[]> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/lead-lists/${listId}/permissions`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    return res.json();
+  },
+
+  async removeLeadListPermission(listId: string, permissionId: string): Promise<void> {
+    const token = localStorage.getItem('authToken');
+    await fetch(`${API_BASE_URL}/lead-lists/${listId}/permissions/${permissionId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
   }
 };

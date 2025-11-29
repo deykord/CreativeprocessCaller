@@ -15,9 +15,37 @@ export default defineConfig(({ mode }) => {
         'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
       },
       build: {
+        minify: 'terser',
+        terserOptions: {
+          compress: {
+            drop_console: true,
+            drop_debugger: true,
+          },
+        },
         rollupOptions: {
           input: 'index.html',
+          output: {
+            manualChunks: {
+              'vendor': [
+                'react',
+                'react-dom',
+                'react-router-dom',
+              ],
+              'ui': [
+                'lucide-react',
+              ],
+            },
+            chunkFileNames: 'assets/[name]-[hash].js',
+            entryFileNames: 'assets/[name]-[hash].js',
+          },
         },
+        chunkSizeWarningLimit: 600,
+        reportCompressedSize: false,
+        cssCodeSplit: true,
+      },
+      optimize: {
+        exclude: [],
       },
     };
 });
+

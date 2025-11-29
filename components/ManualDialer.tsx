@@ -6,8 +6,11 @@ interface Props {
   disabled?: boolean;
 }
 
+
 export const ManualDialer: React.FC<Props> = ({ onCall, disabled }) => {
   const [number, setNumber] = useState('');
+  const [isSessionActive, setIsSessionActive] = useState(false);
+  const [isSessionPaused, setIsSessionPaused] = useState(false);
 
   const handleDigit = (digit: string) => {
     setNumber(prev => prev + digit);
@@ -18,10 +21,26 @@ export const ManualDialer: React.FC<Props> = ({ onCall, disabled }) => {
   };
 
   const handleCall = () => {
-    if (disabled) return;
+    if (disabled || !isSessionActive || isSessionPaused) return;
     if (number.length > 3) {
       onCall(number);
     }
+  };
+
+  const handleStartSession = () => {
+    setIsSessionActive(true);
+    setIsSessionPaused(false);
+  };
+  const handleStopSession = () => {
+    setIsSessionPaused(true);
+  };
+  const handleResumeSession = () => {
+    setIsSessionPaused(false);
+  };
+  const handleEndSession = () => {
+    setIsSessionActive(false);
+    setIsSessionPaused(false);
+    setNumber('');
   };
 
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#'];
@@ -29,6 +48,18 @@ export const ManualDialer: React.FC<Props> = ({ onCall, disabled }) => {
   return (
     <div className="flex flex-col items-center justify-center h-full p-6">
       <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-lg border border-gray-100 dark:border-slate-700 w-full max-w-sm transition-colors duration-200">
+        <div className="mb-4 flex gap-2 justify-center">
+          {!isSessionActive ? (
+            <button onClick={handleStartSession} className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700">Start Session</button>
+          ) : isSessionPaused ? (
+            <button onClick={handleResumeSession} className="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700">Resume</button>
+          ) : (
+            <button onClick={handleStopSession} className="px-4 py-2 bg-amber-500 text-white rounded-lg font-semibold hover:bg-amber-600">Stop</button>
+          )}
+          {isSessionActive && (
+            <button onClick={handleEndSession} className="px-4 py-2 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700">End</button>
+          )}
+        </div>
         <div className="mb-8 relative">
           <input
             type="text"
@@ -61,9 +92,9 @@ export const ManualDialer: React.FC<Props> = ({ onCall, disabled }) => {
 
         <button
           onClick={handleCall}
-          disabled={number.length < 3 || disabled}
+          disabled={number.length < 3 || disabled || !isSessionActive || isSessionPaused}
           className={`w-full py-4 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-lg transition transform active:scale-95 ${
-            number.length < 3 || disabled
+            number.length < 3 || disabled || !isSessionActive || isSessionPaused
               ? 'bg-gray-300 dark:bg-slate-600 cursor-not-allowed' 
               : 'bg-green-500 hover:bg-green-600 shadow-green-200 dark:shadow-green-900/20'
           }`}

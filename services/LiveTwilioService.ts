@@ -40,6 +40,9 @@ class LiveTwilioService {
       this.device = new Device(token, {
         logLevel: 1,
         codecPreferences: ['opus', 'pcmu'],
+        disableAudioContextSounds: true,
+        enableRingingTimer: true,
+        enableImprovedSignalingErrorPrecision: true,
       });
 
       this.device.on('registered', () => console.log('Twilio Device Ready'));

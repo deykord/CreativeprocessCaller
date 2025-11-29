@@ -13,9 +13,30 @@ exports.getProspects = async (req, res) => {
 
 exports.createProspect = async (req, res) => {
   try {
-    const newProspect = await db.createProspect(req.body);
+    const { listId, ...prospectData } = req.body;
+    const userId = req.userId; // Set by auth middleware
+
+    const newProspect = await db.createProspect({
+      ...prospectData,
+      createdBy: userId,
+      listId: listId || null,
+    });
+
+    // If part of a list, add to that list
+    if (listId) {
+      const list = await db.getLeadList(listId);
+      if (list && list.createdBy === userId) {
+        const updatedIds = [...(list.prospectIds || []), newProspect.id];
+        await db.updateLeadList(listId, {
+          prospectIds: updatedIds,
+          prospectCount: updatedIds.length,
+        });
+      }
+    }
+
     res.json(newProspect);
   } catch (error) {
+    console.error('Create prospect error:', error);
     res.status(500).json({ error: 'Failed to create prospect' });
   }
 };

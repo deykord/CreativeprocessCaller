@@ -7,6 +7,7 @@ const voiceRoutes = require('./voice');
 const prospectRoutes = require('./prospects');
 const callRoutes = require('./calls');
 const messageRoutes = require('./messages');
+const leadListRoutes = require('./leadLists');
 
 router.use('/auth', authRoutes);
 router.use('/token', tokenRoutes);
@@ -14,5 +15,6 @@ router.use('/voice', voiceRoutes);
 router.use('/prospects', prospectRoutes);
 router.use('/calls', callRoutes);
 router.use('/messages', messageRoutes);
+router.use('/lead-lists', leadListRoutes);
 
 module.exports = router;

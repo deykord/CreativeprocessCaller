@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { CallLog } from '../types';
 import { Clock, PhoneOutgoing, PhoneMissed, CheckCircle, XCircle, Calendar } from 'lucide-react';
 
@@ -6,7 +6,69 @@ interface Props {
   history: CallLog[];
 }
 
-export const CallHistory: React.FC<Props> = ({ history }) => {
+// Memoized row component
+const CallHistoryRow = React.memo(({ log, formatDuration, getOutcomeIcon }: { 
+  log: CallLog; 
+  formatDuration: (sec: number) => string;
+  getOutcomeIcon: (outcome: string) => React.ReactNode;
+}) => (
+  <tr className="hover:bg-gray-50/50 dark:hover:bg-slate-700/50">
+    <td className="p-4 text-sm text-gray-600 dark:text-gray-300">
+      {new Date(log.timestamp).toLocaleString()}
+    </td>
+    <td className="p-4 font-medium text-gray-900 dark:text-white">
+      {log.prospectName}
+    </td>
+    <td className="p-4 text-sm font-mono text-gray-500 dark:text-gray-400">
+      {log.phoneNumber}
+    </td>
+    <td className="p-4 text-sm text-gray-600 dark:text-gray-300">
+      {formatDuration(log.duration)}
+    </td>
+    <td className="p-4">
+      <div className="flex items-center space-x-2">
+        {getOutcomeIcon(log.outcome)}
+        <span className="text-sm text-gray-700 dark:text-gray-300">{log.outcome}</span>
+      </div>
+    </td>
+    <td className="p-4 text-xs text-gray-500 dark:text-gray-400">
+      {log.fromNumber}
+    </td>
+    <td className="p-4 text-sm text-gray-500 dark:text-gray-400 italic truncate max-w-xs">
+      {log.note || '-'}
+    </td>
+  </tr>
+));
+
+export const CallHistory: React.FC<Props> = React.memo(({ history }) => {
+  // Memoized sorting
+  const sortedHistory = useMemo(() => [...history].reverse(), [history]);
+
+  // Memoized utility functions
+  const getOutcomeIcon = useCallback((outcome: string) => {
+    switch (outcome) {
+      case 'Connected': return <CheckCircle size={16} className="text-green-500" />;
+      case 'Meeting Set': return <Calendar size={16} className="text-purple-500" />;
+      case 'Voicemail': return <PhoneOutgoing size={16} className="text-amber-500" />;
+      case 'Busy': return <XCircle size={16} className="text-red-500" />;
+      default: return <PhoneMissed size={16} className="text-gray-400" />;
+    }
+  }, []);
+
+  const formatDuration = useCallback((sec: number) => {
+    const min = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${min}:${s < 10 ? '0' : ''}${s}`;
+  }, []);
+
+  // Memoize rendered rows
+  const rows = useMemo(() => 
+    sortedHistory.map((log) => (
+      <CallHistoryRow key={log.id} log={log} formatDuration={formatDuration} getOutcomeIcon={getOutcomeIcon} />
+    )),
+    [sortedHistory, formatDuration, getOutcomeIcon]
+  );
+
   if (history.length === 0) {
     return (
       <div className="p-12 text-center text-gray-400 dark:text-gray-500">
@@ -15,25 +77,6 @@ export const CallHistory: React.FC<Props> = ({ history }) => {
       </div>
     );
   }
-
-  // Reverse to show newest first
-  const sortedHistory = [...history].reverse();
-
-  const getOutcomeIcon = (outcome: string) => {
-    switch (outcome) {
-      case 'Connected': return <CheckCircle size={16} className="text-green-500" />;
-      case 'Meeting Set': return <Calendar size={16} className="text-purple-500" />;
-      case 'Voicemail': return <PhoneOutgoing size={16} className="text-amber-500" />;
-      case 'Busy': return <XCircle size={16} className="text-red-500" />;
-      default: return <PhoneMissed size={16} className="text-gray-400" />;
-    }
-  };
-
-  const formatDuration = (sec: number) => {
-    const min = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${min}:${s < 10 ? '0' : ''}${s}`;
-  };
 
   return (
     <div className="max-w-5xl mx-auto p-6">
@@ -52,37 +95,10 @@ export const CallHistory: React.FC<Props> = ({ history }) => {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
-            {sortedHistory.map((log) => (
-              <tr key={log.id} className="hover:bg-gray-50/50 dark:hover:bg-slate-700/50">
-                <td className="p-4 text-sm text-gray-600 dark:text-gray-300">
-                  {new Date(log.timestamp).toLocaleString()}
-                </td>
-                <td className="p-4 font-medium text-gray-900 dark:text-white">
-                  {log.prospectName}
-                </td>
-                <td className="p-4 text-sm font-mono text-gray-500 dark:text-gray-400">
-                  {log.phoneNumber}
-                </td>
-                <td className="p-4 text-sm text-gray-600 dark:text-gray-300">
-                  {formatDuration(log.duration)}
-                </td>
-                <td className="p-4">
-                  <div className="flex items-center space-x-2">
-                    {getOutcomeIcon(log.outcome)}
-                    <span className="text-sm text-gray-700 dark:text-gray-300">{log.outcome}</span>
-                  </div>
-                </td>
-                <td className="p-4 text-xs text-gray-500 dark:text-gray-400">
-                  {log.fromNumber}
-                </td>
-                <td className="p-4 text-sm text-gray-500 dark:text-gray-400 italic truncate max-w-xs">
-                  {log.note || '-'}
-                </td>
-              </tr>
-            ))}
+            {rows}
           </tbody>
         </table>
       </div>
     </div>
   );
-};
+});

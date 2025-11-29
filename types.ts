@@ -96,6 +96,26 @@ export interface Notification {
   link?: string;
 }
 
+export interface LeadList {
+  id: string;
+  name: string;
+  description: string;
+  createdBy: string;
+  prospectIds: string[];
+  prospectCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LeadListPermission {
+  id: string;
+  listId: string;
+  userId: string;
+  canView: boolean;
+  canEdit: boolean;
+  createdAt: string;
+}
+
 export interface AuthResponse {
   success: boolean;
   message?: string;

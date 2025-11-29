@@ -16,6 +16,12 @@ const users = new Map();
 // Messages Storage
 let messages = [];
 
+// Lead Lists (Campaigns/Groups of prospects)
+let leadLists = [];
+
+// Lead List Permissions (who can view/edit which lists)
+let leadListPermissions = [];
+
 /**
  * Service to handle data persistence. 
  * In a real app, replace these methods with Mongoose/Sequelize calls.
@@ -44,6 +50,100 @@ class MockDatabase {
     
     prospects[index] = { ...prospects[index], ...updates };
     return prospects[index];
+  }
+
+  // --- Lead Lists (Campaigns) ---
+
+  async createLeadList(data) {
+    const newList = {
+      id: uuidv4(),
+      ...data,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    leadLists.push(newList);
+    return newList;
+  }
+
+  async getAllLeadLists() {
+    return leadLists;
+  }
+
+  async getLeadList(id) {
+    return leadLists.find(l => l.id === id);
+  }
+
+  async updateLeadList(id, updates) {
+    const index = leadLists.findIndex(l => l.id === id);
+    if (index === -1) return null;
+    
+    leadLists[index] = { 
+      ...leadLists[index], 
+      ...updates,
+      updatedAt: new Date().toISOString()
+    };
+    return leadLists[index];
+  }
+
+  async deleteLeadList(id) {
+    const index = leadLists.findIndex(l => l.id === id);
+    if (index === -1) return null;
+    
+    const deleted = leadLists[index];
+    leadLists.splice(index, 1);
+    
+    // Delete associated permissions
+    leadListPermissions = leadListPermissions.filter(p => p.listId !== id);
+    
+    return deleted;
+  }
+
+  // --- Lead List Permissions ---
+
+  async addLeadListPermission(data) {
+    const permission = {
+      id: uuidv4(),
+      ...data,
+      createdAt: new Date().toISOString(),
+    };
+    leadListPermissions.push(permission);
+    return permission;
+  }
+
+  async getLeadListPermissions(listId) {
+    return leadListPermissions.filter(p => p.listId === listId);
+  }
+
+  async getUserLeadListPermissions(userId) {
+    return leadListPermissions.filter(p => p.userId === userId);
+  }
+
+  async updateLeadListPermission(id, updates) {
+    const index = leadListPermissions.findIndex(p => p.id === id);
+    if (index === -1) return null;
+    
+    leadListPermissions[index] = { ...leadListPermissions[index], ...updates };
+    return leadListPermissions[index];
+  }
+
+  async deleteLeadListPermission(id) {
+    const index = leadListPermissions.findIndex(p => p.id === id);
+    if (index === -1) return null;
+    
+    const deleted = leadListPermissions[index];
+    leadListPermissions.splice(index, 1);
+    
+    return deleted;
+  }
+
+  async canUserAccessList(userId, listId) {
+    // List owner always has access
+    const list = await this.getLeadList(listId);
+    if (list && list.createdBy === userId) return true;
+    
+    // Check explicit permissions
+    const permission = leadListPermissions.find(p => p.listId === listId && p.userId === userId);
+    return permission && (permission.canView || permission.canEdit);
   }
 
   // --- Call Logs ---
@@ -96,3 +196,5 @@ class MockDatabase {
 module.exports = new MockDatabase();
 module.exports.users = users;
 module.exports.messages = messages;
+module.exports.leadLists = leadLists;
+module.exports.leadListPermissions = leadListPermissions;
