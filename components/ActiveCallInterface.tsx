@@ -1,29 +1,61 @@
 import React, { useState, useEffect } from 'react';
 import { CallState, Prospect } from '../types';
-import { Mic, MicOff, PhoneOff, User, Building, Clock, Save, X } from 'lucide-react';
+import { Mic, MicOff, PhoneOff, User, Save, X, Pause, Play, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface Props {
   prospect: Prospect;
   callState: CallState;
   onHangup: () => void;
   onSaveDisposition: (outcome: string, note: string) => void;
+  powerDialerPaused?: boolean;
+  setPowerDialerPaused?: (v: boolean) => void;
 }
 
-export const ActiveCallInterface: React.FC<Props> = ({ prospect, callState, onHangup, onSaveDisposition }) => {
+export const ActiveCallInterface: React.FC<Props> = ({ 
+  prospect, 
+  callState, 
+  onHangup, 
+  onSaveDisposition, 
+  powerDialerPaused, 
+  setPowerDialerPaused 
+}) => {
   const [duration, setDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [note, setNote] = useState('');
   const [outcome, setOutcome] = useState('Connected');
+  const [expanded, setExpanded] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
+  const [recordingBlob, setRecordingBlob] = useState<Blob | null>(null);
 
   useEffect(() => {
-    let interval: any;
+    let interval: ReturnType<typeof setInterval>;
     if (callState === CallState.CONNECTED) {
       interval = setInterval(() => {
         setDuration(prev => prev + 1);
       }, 1000);
+      if (!mediaRecorder) {
+        navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+          const recorder = new MediaRecorder(stream);
+          let chunks: BlobPart[] = [];
+          recorder.ondataavailable = e => chunks.push(e.data);
+          recorder.onstop = () => {
+            const blob = new Blob(chunks, { type: 'audio/webm' });
+            setRecordingBlob(blob);
+            setRecordingUrl(URL.createObjectURL(blob));
+          };
+          recorder.start();
+          setMediaRecorder(recorder);
+        }).catch(() => {});
+      }
+    }
+    if (callState === CallState.WRAP_UP && mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+      setMediaRecorder(null);
+      setExpanded(true); // Auto-expand for wrap-up
     }
     return () => clearInterval(interval);
-  }, [callState]);
+  }, [callState, mediaRecorder]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -32,129 +64,224 @@ export const ActiveCallInterface: React.FC<Props> = ({ prospect, callState, onHa
   };
 
   const isWrapUp = callState === CallState.WRAP_UP;
+  const isConnecting = callState === CallState.DIALING || callState === CallState.RINGING;
+  const isLive = callState === CallState.CONNECTED;
+
+  const outcomes = [
+    { label: 'Connected', color: 'bg-green-600' },
+    { label: 'Voicemail', color: 'bg-blue-600' },
+    { label: 'Busy', color: 'bg-yellow-600' },
+    { label: 'Meeting Set', color: 'bg-purple-600' },
+    { label: 'Not Interested', color: 'bg-orange-600' },
+    { label: 'No Answer', color: 'bg-gray-600' },
+  ];
+
+  const handleSave = async () => {
+    if (recordingBlob) {
+      const formData = new FormData();
+      formData.append('file', recordingBlob, `call-${prospect.id}-${Date.now()}.webm`);
+      try {
+        await fetch('/api/recordings/upload', { method: 'POST', body: formData });
+      } catch (e) {
+        console.warn('Recording upload failed:', e);
+      }
+    }
+    onSaveDisposition(outcome, note);
+  };
 
   return (
-    <div className="fixed bottom-0 right-0 w-full md:w-96 md:bottom-4 md:right-4 bg-white dark:bg-slate-800 shadow-2xl border border-gray-200 dark:border-slate-700 rounded-t-xl md:rounded-xl z-50 overflow-hidden flex flex-col max-h-[90vh]">
-      {/* Header */}
-      <div className={`p-4 flex justify-between items-start ${isWrapUp ? 'bg-gray-800 dark:bg-slate-950' : 'bg-indigo-600 dark:bg-indigo-800'} text-white transition-colors duration-300`}>
-        <div>
-          <h3 className="font-bold text-lg flex items-center gap-2 mb-1">
-            {callState === CallState.DIALING && 'Dialing...'}
-            {callState === CallState.RINGING && 'Ringing...'}
-            {callState === CallState.CONNECTED && 'Connected'}
-            {callState === CallState.WRAP_UP && 'Call Ended - Wrap Up'}
-          </h3>
-          <div className="text-indigo-100 text-sm flex items-center">
-            {callState === CallState.CONNECTED ? (
-              <>
-                <span className="font-mono text-lg font-medium mr-3">{formatTime(duration)}</span>
-                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-red-500/20 border border-red-500/30 rounded text-red-50 text-[10px] font-bold tracking-wider">
-                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)]"></div>
-                  REC
-                </div>
-              </>
-            ) : (
-              <span>{prospect.phone}</span>
-            )}
+    <div className="bg-slate-900 border-b border-slate-700 shadow-lg">
+      {/* Compact Call Bar - Always visible */}
+      <div className="h-14 px-4 flex items-center justify-between">
+        {/* Left: Status + Contact */}
+        <div className="flex items-center gap-4">
+          {/* Status indicator */}
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium ${
+            isConnecting ? 'bg-yellow-600/20 text-yellow-400' : 
+            isLive ? 'bg-green-600/20 text-green-400' : 
+            'bg-slate-700 text-slate-300'
+          }`}>
+            <div className={`w-2 h-2 rounded-full ${
+              isConnecting ? 'bg-yellow-500 animate-pulse' : 
+              isLive ? 'bg-green-500 animate-pulse' : 
+              'bg-slate-500'
+            }`} />
+            {isConnecting && (callState === CallState.DIALING ? 'Dialing' : 'Ringing')}
+            {isLive && `Live ${formatTime(duration)}`}
+            {isWrapUp && `Ended ${formatTime(duration)}`}
           </div>
-        </div>
-        {callState === CallState.CONNECTED && (
-          <div className="flex items-center space-x-1 bg-indigo-700/50 px-2 py-1 rounded text-xs mt-1">
-            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-            <span>Live</span>
-          </div>
-        )}
-      </div>
 
-      {/* Body */}
-      <div className="p-6 flex-1 overflow-y-auto">
-        <div className="flex items-start space-x-4 mb-6">
-          <div className="w-12 h-12 bg-gray-100 dark:bg-slate-700 rounded-full flex items-center justify-center text-gray-500 dark:text-gray-300">
-            <User size={24} />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white">{prospect.firstName} {prospect.lastName}</h2>
-            <div className="flex items-center text-gray-500 dark:text-gray-400 text-sm mt-1">
-              <Building size={14} className="mr-1" />
-              {prospect.title} @ {prospect.company}
+          {/* Recording badge */}
+          {isLive && (
+            <div className="flex items-center gap-1 px-2 py-1 bg-red-600/20 rounded text-red-400 text-xs font-bold">
+              <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+              REC
             </div>
-            <div className="flex items-center text-gray-400 text-xs mt-1">
-              <Clock size={12} className="mr-1" />
-              Local Time: {new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })} (EST)
+          )}
+
+          {/* Contact info */}
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center text-slate-400">
+              <User size={16} />
+            </div>
+            <div>
+              <p className="text-white font-medium text-sm">{prospect.firstName} {prospect.lastName}</p>
+              <p className="text-slate-500 text-xs">{prospect.phone}</p>
             </div>
           </div>
         </div>
 
-        {/* Notes Section */}
-        <div className="mb-4">
-          <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-            Call Notes
-          </label>
-          <textarea
-            className="w-full p-3 border border-gray-300 dark:border-slate-600 rounded-lg text-sm bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-none h-32"
-            placeholder="Type notes here..."
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            autoFocus={callState === CallState.CONNECTED}
-          />
-        </div>
-
-        {/* Wrap Up Options */}
-        {isWrapUp && (
-          <div className="animate-fade-in-up">
-            <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-              Outcome
-            </label>
-            <div className="grid grid-cols-2 gap-2 mb-4">
-              {['Connected', 'Voicemail', 'Busy', 'Meeting Set', 'Not Interested'].map((o) => (
-                <button
-                  key={o}
-                  onClick={() => setOutcome(o)}
-                  className={`px-3 py-2 text-sm rounded-md border ${
-                    outcome === o 
-                      ? 'bg-indigo-50 dark:bg-indigo-900/50 border-indigo-500 text-indigo-700 dark:text-indigo-300 font-medium' 
-                      : 'border-gray-200 dark:border-slate-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  {o}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Footer Controls */}
-      <div className="p-4 bg-gray-50 dark:bg-slate-750 border-t border-gray-200 dark:border-slate-700">
-        {!isWrapUp ? (
-          <div className="flex justify-between items-center">
-             <button
+        {/* Right: Controls */}
+        <div className="flex items-center gap-2">
+          {/* Mute button */}
+          {!isWrapUp && (
+            <button
               onClick={() => setIsMuted(!isMuted)}
-              className={`flex flex-col items-center justify-center w-12 h-12 rounded-full ${isMuted ? 'bg-amber-100 text-amber-600' : 'bg-white dark:bg-slate-600 text-gray-600 dark:text-white border border-gray-300 dark:border-slate-500'} hover:shadow-md transition`}
+              className={`w-9 h-9 rounded-full flex items-center justify-center transition ${
+                isMuted ? 'bg-amber-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+              }`}
+              title={isMuted ? 'Unmute' : 'Mute'}
             >
-              {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
+              {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
             </button>
-            
+          )}
+
+          {/* End/Cancel button */}
+          {!isWrapUp ? (
             <button
               onClick={onHangup}
-              className="flex-1 mx-4 bg-red-500 hover:bg-red-600 text-white font-semibold py-3 px-6 rounded-full shadow-lg shadow-red-200 dark:shadow-red-900/30 transition flex items-center justify-center"
+              className="h-9 px-4 bg-red-600 hover:bg-red-500 text-white text-sm font-medium rounded-full flex items-center gap-2 transition"
             >
-              <PhoneOff size={20} className="mr-2" />
-              End Call
+              <PhoneOff size={16} />
+              End
             </button>
-          </div>
-        ) : (
-          <div className="flex space-x-3">
-             <button
-              onClick={() => onSaveDisposition(outcome, note)}
-              className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg shadow-sm transition flex items-center justify-center"
+          ) : (
+            <button
+              onClick={onHangup}
+              className="h-9 px-3 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded-full flex items-center gap-1 transition"
             >
-              <Save size={18} className="mr-2" />
-              Save & Next
+              <X size={16} />
+              Cancel
             </button>
-          </div>
-        )}
+          )}
+
+          {/* Save button (wrap-up only) */}
+          {isWrapUp && (
+            <button
+              onClick={handleSave}
+              className="h-9 px-4 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-full flex items-center gap-2 transition"
+            >
+              <Save size={16} />
+              Save
+            </button>
+          )}
+
+          {/* Expand/collapse button */}
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="w-9 h-9 rounded-full bg-slate-700 hover:bg-slate-600 text-slate-300 flex items-center justify-center transition"
+            title={expanded ? 'Collapse' : 'Expand'}
+          >
+            {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+        </div>
       </div>
+
+      {/* Expanded Panel - Notes, Disposition, etc. */}
+      {expanded && (
+        <div className="px-4 pb-4 border-t border-slate-700">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
+            {/* Left column: Notes */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                Call Notes
+              </label>
+              <textarea
+                className="w-full p-3 bg-slate-800 border border-slate-600 rounded-lg text-sm text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
+                placeholder="Type notes here..."
+                rows={3}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+              />
+              
+              {/* Recording playback */}
+              {recordingUrl && (
+                <div className="mt-2">
+                  <audio controls src={recordingUrl} className="w-full h-8" style={{ filter: 'invert(1)' }} />
+                </div>
+              )}
+            </div>
+
+            {/* Right column: Disposition (wrap-up) or Info */}
+            <div>
+              {isWrapUp ? (
+                <>
+                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                    Outcome
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {outcomes.map((o) => (
+                      <button
+                        key={o.label}
+                        onClick={() => setOutcome(o.label)}
+                        className={`px-2 py-2 text-xs rounded-lg font-medium transition ${
+                          outcome === o.label 
+                            ? `${o.color} text-white ring-2 ring-white/30` 
+                            : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                        }`}
+                      >
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Auto-dial toggle */}
+                  <div className="flex items-center justify-between mt-4 p-3 bg-slate-800 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      {powerDialerPaused ? (
+                        <Pause size={14} className="text-yellow-400" />
+                      ) : (
+                        <Play size={14} className="text-green-400" />
+                      )}
+                      <span className="text-sm text-slate-300">Auto-dial next</span>
+                    </div>
+                    <button
+                      onClick={() => setPowerDialerPaused && setPowerDialerPaused(!powerDialerPaused)}
+                      className={`relative w-10 h-5 rounded-full transition-colors ${
+                        powerDialerPaused ? 'bg-slate-600' : 'bg-green-600'
+                      }`}
+                    >
+                      <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${
+                        powerDialerPaused ? 'left-0.5' : 'left-5'
+                      }`} />
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                    Contact Details
+                  </label>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between p-2 bg-slate-800 rounded">
+                      <span className="text-slate-400">Company</span>
+                      <span className="text-white">{prospect.company}</span>
+                    </div>
+                    <div className="flex justify-between p-2 bg-slate-800 rounded">
+                      <span className="text-slate-400">Title</span>
+                      <span className="text-white">{prospect.title}</span>
+                    </div>
+                    <div className="flex justify-between p-2 bg-slate-800 rounded">
+                      <span className="text-slate-400">Email</span>
+                      <span className="text-white truncate ml-2">{prospect.email}</span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

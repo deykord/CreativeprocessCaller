@@ -20,7 +20,7 @@ import { backendAPI } from './services/BackendAPI';
 
 // Lazy load heavy components
 const LeadListManager = React.lazy(() => import('./components/LeadListManager').then(m => ({ default: m.LeadListManager })));
-const TeamManagement = React.lazy(() => import('./components/TeamManagement').then(m => ({ default: m })));
+const TeamManagement = React.lazy(() => import('./components/TeamManagement').then(m => ({ default: m.TeamManagement })));
 
 // Loading fallback component
 const LoadingSpinner = () => (
@@ -38,6 +38,8 @@ type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'hist
 
 const Dashboard: React.FC = () => {
     const [powerDialerDispositionSaved, setPowerDialerDispositionSaved] = useState(false);
+    // When wrap-up UI toggles 'pause', we store it here so PowerDialer will stop auto-advancing
+    const [powerDialerPausedByWrapUp, setPowerDialerPausedByWrapUp] = useState(false);
   const navigate = useNavigate();
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [prospects, setProspects] = useState<Prospect[]>(INITIAL_PROSPECTS);
@@ -128,15 +130,14 @@ const Dashboard: React.FC = () => {
       console.error("Call failed", err);
       alert("Call failed to connect. Check console for details.");
       setCurrentCall(null);
-      // Auto-advance PowerDialer if open
+      // Only set dispositionSaved, let PowerDialer handle advance
       setPowerDialerDispositionSaved(true);
-      if (window.__powerDialerAdvanceToNext) window.__powerDialerAdvanceToNext();
     }
   };
 
   const handleManualCall = async (phoneNumber: string) => {
     if (!isTwilioReady) {
-          return <PowerDialer queue={powerDialerQueue} onCall={handleCall} disabled={!isTwilioReady} onAdvanceToNext={() => { if (window.__powerDialerAdvanceToNext) window.__powerDialerAdvanceToNext(); }} />;
+      alert("Twilio is not ready. Please wait for initialization.");
       return;
     }
     const manualProspect: Prospect = {
@@ -181,7 +182,18 @@ const Dashboard: React.FC = () => {
         console.error("Failed to save log to backend", err);
       }
     } else {
-      const mockLog = { ...newLog, id: `log-${Date.now()}` } as CallLog;
+      // Fill all required CallLog fields for mock
+      const mockLog: CallLog = {
+        id: `log-${Date.now()}`,
+        prospectId: currentCall.prospect.id,
+        prospectName: `${currentCall.prospect.firstName} ${currentCall.prospect.lastName}`,
+        outcome,
+        duration: durationSec,
+        timestamp: new Date().toISOString(),
+        phoneNumber: currentCall.prospect.phone,
+        note,
+        fromNumber: user?.email || '',
+      };
       setCallHistory(prev => [...prev, mockLog]);
       setProspects(prev => prev.map(p => 
         p.id === currentCall.prospect.id 
@@ -201,6 +213,8 @@ const Dashboard: React.FC = () => {
     });
 
     setCurrentCall(null);
+    // Notify PowerDialer to advance to the next lead and trigger the dial
+    setPowerDialerDispositionSaved(true);
   };
 
   const handleUpload = async (file: File) => {
@@ -260,6 +274,28 @@ const Dashboard: React.FC = () => {
 
   const powerDialerQueue = prospects.filter(p => p.status === 'New');
 
+  const handleDeleteProspect = async (id: string) => {
+    try {
+      await backendAPI.deleteProspect(id);
+      setProspects(prev => prev.filter(p => p.id !== id));
+    } catch (err) {
+      console.error('Failed to delete prospect:', err);
+      alert('Failed to delete prospect');
+    }
+  };
+
+  const handleUpdateProspect = async (id: string, updates: Partial<Prospect>) => {
+    // Update local state immediately for responsiveness
+    setProspects(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+    // Optionally refetch from backend to ensure consistency
+    try {
+      const refreshedProspects = await backendAPI.getProspects();
+      setProspects(refreshedProspects);
+    } catch (err) {
+      console.warn('Failed to refresh prospects after update:', err);
+    }
+  };
+
   const handleLogout = async () => {
     await backendAPI.logout();
     navigate('/login');
@@ -311,6 +347,10 @@ const Dashboard: React.FC = () => {
             onAdvanceToNext={() => { if (window.__powerDialerAdvanceToNext) window.__powerDialerAdvanceToNext(); }}
             dispositionSaved={powerDialerDispositionSaved}
             setDispositionSaved={setPowerDialerDispositionSaved}
+            onDeleteProspect={handleDeleteProspect}
+            onUpdateProspect={handleUpdateProspect}
+            powerDialerPaused={powerDialerPausedByWrapUp}
+            setPowerDialerPaused={setPowerDialerPausedByWrapUp}
           />;
       case 'manual-dialer':
         return <ManualDialer onCall={handleManualCall} disabled={!isTwilioReady} />;
@@ -433,24 +473,23 @@ const Dashboard: React.FC = () => {
             onViewProfile={() => setCurrentView('profile')}
           />
 
+          {/* Active Call Bar - Inline at top, NOT a modal overlay */}
+          {currentCall && (
+            <ActiveCallInterface 
+              prospect={currentCall.prospect}
+              callState={currentCall.state}
+              onHangup={handleHangup}
+              onSaveDisposition={handleSaveDisposition}
+              powerDialerPaused={powerDialerPausedByWrapUp}
+              setPowerDialerPaused={setPowerDialerPausedByWrapUp}
+            />
+          )}
+
           <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50 dark:bg-slate-900 transition-colors duration-200">
             <div className="max-w-7xl mx-auto h-full">
               {renderContent()}
             </div>
           </div>
-
-          {currentCall && (
-            <div className="absolute inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center md:block md:bg-transparent md:backdrop-blur-none md:pointer-events-none">
-              <div className="md:pointer-events-auto w-full h-full md:absolute md:inset-0">
-                <ActiveCallInterface 
-                  prospect={currentCall.prospect}
-                  callState={currentCall.state}
-                  onHangup={handleHangup}
-                  onSaveDisposition={handleSaveDisposition}
-                />
-              </div>
-            </div>
-          )}
         </main>
       </div>
     </div>
