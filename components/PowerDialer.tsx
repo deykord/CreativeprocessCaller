@@ -47,8 +47,11 @@ const PowerDialer: React.FC<Props> = React.memo(({
   const [user, setUser] = useState<{ role?: string } | null>(null);
   const isAdvancingRef = React.useRef(false);
   
-  // CRITICAL: Store a stable copy of the queue when dialer starts
-  // This prevents index shifting when prospects are updated (status changes)
+  // CRITICAL: Use refs for stable queue to avoid stale closure issues
+  const stableQueueRef = React.useRef<Prospect[]>([]);
+  const currentIndexRef = React.useRef(0);
+  
+  // State for UI updates
   const [stableQueue, setStableQueue] = useState<Prospect[]>([]);
 
   useEffect(() => {
@@ -69,37 +72,67 @@ const PowerDialer: React.FC<Props> = React.memo(({
   // Use stableQueue for operations during active session, queue for preview
   const activeQueue = isActive ? stableQueue : queue;
 
+  // Keep refs in sync with state
+  React.useEffect(() => {
+    currentIndexRef.current = currentIndex;
+  }, [currentIndex]);
+
   const advanceToNextLead = React.useCallback((shouldCall: boolean = true) => {
-    if (isAdvancingRef.current) return;
+    if (isAdvancingRef.current) {
+      console.log('[PowerDialer] advanceToNextLead blocked - already advancing');
+      return;
+    }
     isAdvancingRef.current = true;
     
-    setCurrentIndex(prev => {
-      let nextIndex = prev;
-      // Mark current as completed
-      const prospectId = stableQueue[prev]?.id;
-      if (prospectId && !completedIds.includes(prospectId)) {
-        setCompletedIds(ids => [...ids, prospectId]);
-      }
-      
-      // Move to next
-      if (prev < stableQueue.length - 1) {
-        nextIndex = prev + 1;
-      } else {
-        // Reached the end
-        setIsActive(false);
-        setTimeout(() => { isAdvancingRef.current = false; }, 100);
-        return prev;
-      }
-      
-      // Call next prospect (using stableQueue which is stable)
-      if (shouldCall && nextIndex < stableQueue.length && stableQueue[nextIndex]) {
-        setTimeout(() => onCall(stableQueue[nextIndex]), 50);
-      }
-      
-      setTimeout(() => { isAdvancingRef.current = false; }, 300);
-      return nextIndex;
+    // Use refs for stable access
+    const currentQueue = stableQueueRef.current;
+    const prevIndex = currentIndexRef.current;
+    
+    console.log('[PowerDialer] advanceToNextLead called', { 
+      shouldCall, 
+      currentIndex: prevIndex, 
+      queueLength: currentQueue.length 
     });
-  }, [stableQueue, completedIds, onCall]);
+    
+    if (!currentQueue.length) {
+      console.log('[PowerDialer] Empty queue, aborting advance');
+      isAdvancingRef.current = false;
+      return;
+    }
+    
+    // Mark current as completed
+    const prospectId = currentQueue[prevIndex]?.id;
+    if (prospectId) {
+      setCompletedIds(ids => {
+        if (ids.includes(prospectId)) return ids;
+        return [...ids, prospectId];
+      });
+    }
+    
+    // Move to next
+    if (prevIndex < currentQueue.length - 1) {
+      const nextIndex = prevIndex + 1;
+      currentIndexRef.current = nextIndex;
+      setCurrentIndex(nextIndex);
+      
+      // Call next prospect
+      const nextProspect = currentQueue[nextIndex];
+      if (shouldCall && nextProspect) {
+        console.log('[PowerDialer] Calling next prospect:', nextProspect.firstName, nextProspect.lastName);
+        setTimeout(() => {
+          onCall(nextProspect);
+          isAdvancingRef.current = false;
+        }, 100);
+      } else {
+        isAdvancingRef.current = false;
+      }
+    } else {
+      // Reached the end
+      console.log('[PowerDialer] Reached end of queue');
+      setIsActive(false);
+      isAdvancingRef.current = false;
+    }
+  }, [onCall]);
 
   useEffect(() => {
     window.__powerDialerAdvanceToNext = advanceToNextLead;
@@ -117,13 +150,19 @@ const PowerDialer: React.FC<Props> = React.memo(({
   const handleStart = useCallback(() => {
     // CRITICAL: Snapshot the queue at start time so indices remain stable
     // even when prospects update their status (New -> Contacted)
-    setStableQueue([...queue]);
+    const snapshot = [...queue];
+    stableQueueRef.current = snapshot;
+    currentIndexRef.current = 0;
+    setStableQueue(snapshot);
     setIsActive(true);
     setIsPaused(false);
     setCurrentIndex(0);
     setCompletedIds([]);
-    if (queue.length > 0) {
-      onCall(queue[0]);
+    
+    console.log('[PowerDialer] Started with queue:', snapshot.length, 'leads');
+    
+    if (snapshot.length > 0) {
+      onCall(snapshot[0]);
     }
   }, [queue, onCall]);
 
@@ -143,6 +182,8 @@ const PowerDialer: React.FC<Props> = React.memo(({
     setIsPaused(false);
     setCurrentIndex(0);
     setStableQueue([]);
+    stableQueueRef.current = [];
+    currentIndexRef.current = 0;
   }, []);
 
   const currentProspect = activeQueue[currentIndex];
