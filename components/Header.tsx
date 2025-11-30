@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Bell, X, Check, Phone } from 'lucide-react';
 import { Notification, User, TwilioPhoneNumber } from '../types';
 
@@ -33,6 +33,29 @@ export const Header: React.FC<HeaderProps> = ({
   const [showNotifications, setShowNotifications] = useState(false);
   const [showCallerIdMenu, setShowCallerIdMenu] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+
+  // Refs for click-outside detection
+  const profileRef = useRef<HTMLDivElement>(null);
+  const notificationsRef = useRef<HTMLDivElement>(null);
+  const callerIdRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
+        setShowProfile(false);
+      }
+      if (notificationsRef.current && !notificationsRef.current.contains(event.target as Node)) {
+        setShowNotifications(false);
+      }
+      if (callerIdRef.current && !callerIdRef.current.contains(event.target as Node)) {
+        setShowCallerIdMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     // Load notifications from localStorage
@@ -98,7 +121,7 @@ export const Header: React.FC<HeaderProps> = ({
         )}
 
         {/* Caller ID Selector */}
-        <div className="relative">
+        <div className="relative" ref={callerIdRef}>
           <button
             onClick={() => setShowCallerIdMenu(!showCallerIdMenu)}
             className="hidden md:flex items-center px-3 py-2 bg-gray-100 dark:bg-slate-700 rounded-lg text-sm text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-600 transition"
@@ -151,7 +174,7 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
 
         {/* Notifications */}
-        <div className="relative">
+        <div className="relative" ref={notificationsRef}>
           <button
             onClick={() => setShowNotifications(!showNotifications)}
             className="relative p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-full transition-colors"
@@ -228,7 +251,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* User Profile */}
-        <div className="relative">
+        <div className="relative" ref={profileRef}>
           <button
             onClick={() => setShowProfile(!showProfile)}
             className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm cursor-pointer transition ${

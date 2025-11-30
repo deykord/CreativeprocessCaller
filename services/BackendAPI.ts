@@ -1,23 +1,13 @@
 
 import { Prospect, CallLog, TwilioPhoneNumber, AuthResponse, User, Message, LeadList, LeadListPermission, StatusChange, ProspectCallLog, LeadActivityLog, TwilioCallStatus, CallEndReason } from '../types';
 
-// Determine API URL based on environment and base path
+// Determine API URL based on environment
 const getAPIBaseURL = () => {
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    const pathname = window.location.pathname;
-    
-    // Check if we're on the /dev path (dev build)
-    if (pathname.startsWith('/dev')) {
-      return `${window.location.protocol}//${window.location.host}/dev/api`;
-    }
-    
-    // Production or other environments
-    if (!hostname.includes('localhost')) {
-      return `${window.location.protocol}//${window.location.host}/api`;
-    }
+  // In production, use same origin (backend serves from same domain)
+  if (typeof window !== 'undefined' && !window.location.hostname.includes('localhost')) {
+    return `${window.location.protocol}//${window.location.host}/api`;
   }
-  // In development (localhost), use localhost:3001
+  // In development, use localhost:3001
   return 'http://localhost:3001/api';
 };
 

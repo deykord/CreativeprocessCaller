@@ -4,11 +4,10 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
-    // Support base path for subdirectory deployments (e.g., /dev/)
-    const basePath = process.env.VITE_BASE_PATH || '/';
-    
+    // Use /dev/ base path for dev deployment
+    const base = process.env.BUILD_BASE || '/dev/';
     return {
-      base: basePath,
+      base,
       server: {
         port: 5173,
         host: '0.0.0.0',
@@ -16,8 +15,7 @@ export default defineConfig(({ mode }) => {
       plugins: [react()],
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.VITE_BASE_PATH': JSON.stringify(basePath),
+        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
       },
       build: {
         minify: 'terser',

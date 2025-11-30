@@ -133,11 +133,11 @@ export const TeamManagement: React.FC = () => {
   const getRoleColor = (role: string) => {
     switch (role) {
       case 'admin':
-        return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300';
+        return 'bg-red-100 text-red-800';
       case 'manager':
-        return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300';
+        return 'bg-blue-100 text-blue-800';
       default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300';
+        return 'bg-gray-100 text-gray-800';
     }
   };
 
@@ -158,7 +158,7 @@ export const TeamManagement: React.FC = () => {
       </div>
 
       {message && (
-        <div className={`p-4 rounded-lg ${message.type === 'success' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'}`}>
+        <div className={`p-4 rounded-lg ${message.type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
           {message.text}
         </div>
       )}
@@ -287,7 +287,7 @@ export const TeamManagement: React.FC = () => {
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     {Object.entries(member.permissions).map(([key, value]) => (
                       <div key={key} className="flex items-center gap-2">
-                        <div className={`w-3 h-3 rounded ${value ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'}`}></div>
+                        <div className={`w-3 h-3 rounded ${value ? 'bg-green-500' : 'bg-gray-300'}`}></div>
                         <span className="text-sm text-gray-700 dark:text-gray-300">
                           {key
                             .replace(/([A-Z])/g, ' $1')

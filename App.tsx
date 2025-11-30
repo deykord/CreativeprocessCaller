@@ -48,25 +48,12 @@ const Dashboard: React.FC = () => {
   const [currentCall, setCurrentCall] = useState<{ prospect: Prospect; state: CallState; startTime: number } | null>(null);
   const [callerId, setCallerId] = useState<string | null>(null);
   const [callHistory, setCallHistory] = useState<CallLog[]>([]);
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    const saved = localStorage.getItem('darkMode');
-    return saved ? JSON.parse(saved) : window.matchMedia('(prefers-color-scheme: dark)').matches;
-  });
+  const [isDarkMode, setIsDarkMode] = useState(false);
   const [isTwilioReady, setIsTwilioReady] = useState(false);
   const [twilioError, setTwilioError] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [twilioNumbers, setTwilioNumbers] = useState<TwilioPhoneNumber[]>([]);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
-
-  // Persist dark mode and apply to document
-  useEffect(() => {
-    localStorage.setItem('darkMode', JSON.stringify(isDarkMode));
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [isDarkMode]);
 
   useEffect(() => {
     const initSystem = async () => {
@@ -565,8 +552,11 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 };
 
 const App: React.FC = () => {
+  // Detect if we're running in /dev subdirectory
+  const basename = window.location.pathname.startsWith('/dev') ? '/dev' : '';
+  
   return (
-    <Router>
+    <Router basename={basename}>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route 

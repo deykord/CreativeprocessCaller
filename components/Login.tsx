@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { backendAPI } from '../services/BackendAPI';
 import '../styles/Auth.css';
@@ -12,26 +12,12 @@ interface LoginFormState {
 
 export const Login: React.FC = () => {
   const navigate = useNavigate();
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    const saved = localStorage.getItem('darkMode');
-    return saved ? JSON.parse(saved) : window.matchMedia('(prefers-color-scheme: dark)').matches;
-  });
   const [formState, setFormState] = useState<LoginFormState>({
     email: '',
     password: '',
     loading: false,
     error: '',
   });
-
-  useEffect(() => {
-    // Apply dark mode class to document
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-    localStorage.setItem('darkMode', JSON.stringify(isDarkMode));
-  }, [isDarkMode]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -74,64 +60,51 @@ export const Login: React.FC = () => {
   };
 
   return (
-    <div className={isDarkMode ? 'dark' : ''}>
-      <div className="auth-container">
-        <div className="auth-card">
-          {/* Theme Toggle */}
-          <div className="flex justify-end mb-4">
-            <button
-              onClick={() => setIsDarkMode(!isDarkMode)}
-              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
-              title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-            >
-              {isDarkMode ? '☀️' : '🌙'}
-            </button>
-          </div>
-          
-          <h1>Login</h1>
-          <form onSubmit={handleSubmit}>
-            <div className="form-group">
-              <label htmlFor="email">Email</label>
-              <input
-                id="email"
-                type="email"
-                name="email"
-                value={formState.email}
-                onChange={handleInputChange}
-                placeholder="Enter your email"
-                disabled={formState.loading}
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="password">Password</label>
-              <input
-                id="password"
-                type="password"
-                name="password"
-                value={formState.password}
-                onChange={handleInputChange}
-                placeholder="Enter your password"
-                disabled={formState.loading}
-              />
-            </div>
-
-            {formState.error && (
-              <div className="error-message">{formState.error}</div>
-            )}
-
-            <button
-              type="submit"
+    <div className="auth-container">
+      <div className="auth-card">
+        <h1>Login</h1>
+        <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label htmlFor="email">Email</label>
+            <input
+              id="email"
+              type="email"
+              name="email"
+              value={formState.email}
+              onChange={handleInputChange}
+              placeholder="Enter your email"
               disabled={formState.loading}
-              className="submit-button"
-            >
-              {formState.loading ? 'Logging in...' : 'Login'}
-            </button>
-          </form>
-
-          <div className="auth-footer">
-            <p className="text-gray-500">Admin creates user accounts</p>
+            />
           </div>
+
+          <div className="form-group">
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              name="password"
+              value={formState.password}
+              onChange={handleInputChange}
+              placeholder="Enter your password"
+              disabled={formState.loading}
+            />
+          </div>
+
+          {formState.error && (
+            <div className="error-message">{formState.error}</div>
+          )}
+
+          <button
+            type="submit"
+            disabled={formState.loading}
+            className="submit-button"
+          >
+            {formState.loading ? 'Logging in...' : 'Login'}
+          </button>
+        </form>
+
+        <div className="auth-footer">
+          <p className="text-gray-500">Admin creates user accounts</p>
         </div>
       </div>
     </div>

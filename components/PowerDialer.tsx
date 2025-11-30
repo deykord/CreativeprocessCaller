@@ -724,7 +724,7 @@ const PowerDialer: React.FC<Props> = ({
               <>
                 <button
                   onClick={() => setMicMuted(!micMuted)}
-                  className={`p-2 rounded ${micMuted ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'} hover:bg-gray-200 dark:hover:bg-gray-600`}
+                  className={`p-2 rounded ${micMuted ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-600'} hover:bg-gray-200`}
                   title={micMuted ? 'Unmute' : 'Mute'}
                 >
                   {micMuted ? <X className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
@@ -732,7 +732,7 @@ const PowerDialer: React.FC<Props> = ({
                 <select
                   value={selectedMicrophone}
                   onChange={(e) => setSelectedMicrophone(e.target.value)}
-                  className="px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200"
+                  className="px-2 py-1 text-xs border border-gray-300 rounded bg-white text-gray-700"
                 >
                   {audioDevices.microphones.map((mic) => (
                     <option key={mic.deviceId} value={mic.deviceId}>
@@ -756,14 +756,14 @@ const PowerDialer: React.FC<Props> = ({
               <>
                 <button
                   onClick={handleEndSession}
-                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md text-sm font-medium flex items-center gap-2"
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-sm font-medium flex items-center gap-2"
                 >
                   <PhoneOff className="w-4 h-4" />
                   End Session
                 </button>
                 <button
                   onClick={handlePauseResume}
-                  className="px-4 py-2 bg-gray-800 hover:bg-gray-900 dark:bg-gray-600 dark:hover:bg-gray-500 text-white rounded-md text-sm font-medium flex items-center gap-2"
+                  className="px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white rounded-md text-sm font-medium flex items-center gap-2"
                 >
                   {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
                   {isPaused ? 'Resume Dialing' : 'Pause Dialing'}
