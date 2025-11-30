@@ -4,9 +4,9 @@ import { DashboardStats } from './components/DashboardStats';
 import { ProspectTable } from './components/ProspectTable';
 import { ActiveCallInterface } from './components/ActiveCallInterface';
 import { ManualDialer } from './components/ManualDialer';
-import PowerDialer from './components/PowerDialer';
+import PowerDialer from './components/PowerDialerOrum';
 import { Settings } from './components/Settings';
-import { CallHistory } from './components/CallHistory';
+import CallHistoryAdvanced from './components/CallHistoryAdvanced';
 import { Header } from './components/Header';
 import { Login } from './components/Login';
 import UserProfile from './components/UserProfile';
@@ -54,6 +54,28 @@ const Dashboard: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [twilioNumbers, setTwilioNumbers] = useState<TwilioPhoneNumber[]>([]);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
+  const [openImportModal, setOpenImportModal] = useState(false);
+
+  // Listen for navigation events from PowerDialer
+  useEffect(() => {
+    const handleNavigate = (e: CustomEvent) => {
+      if (e.detail === 'lead-lists') {
+        setCurrentView('lead-lists');
+      }
+    };
+    const handleOpenImport = () => {
+      setCurrentView('lead-lists');
+      setOpenImportModal(true);
+    };
+    
+    window.addEventListener('navigateTo', handleNavigate as EventListener);
+    window.addEventListener('openImportModal', handleOpenImport);
+    
+    return () => {
+      window.removeEventListener('navigateTo', handleNavigate as EventListener);
+      window.removeEventListener('openImportModal', handleOpenImport);
+    };
+  }, []);
 
   useEffect(() => {
     const initSystem = async () => {
@@ -250,8 +272,21 @@ const Dashboard: React.FC = () => {
           const values = line.split(',').map(v => v.trim());
           const data: any = {};
           headers.forEach((header, i) => {
-            if (header.includes('first')) data.firstName = values[i];
-            else if (header.includes('last')) data.lastName = values[i];
+            // Handle combined "name" or "full name" column
+            if (header === 'name' || header === 'full name' || header === 'fullname') {
+              const nameParts = (values[i] || '').trim().split(/\s+/);
+              if (nameParts.length >= 2) {
+                data.firstName = nameParts[0];
+                data.lastName = nameParts.slice(1).join(' ');
+              } else {
+                data.firstName = nameParts[0] || '';
+                data.lastName = '';
+              }
+            }
+            else if (header.includes('first') && header.includes('name')) data.firstName = values[i];
+            else if (header.includes('last') && header.includes('name')) data.lastName = values[i];
+            else if (header === 'first' || header === 'firstname') data.firstName = values[i];
+            else if (header === 'last' || header === 'lastname') data.lastName = values[i];
             else if (header.includes('phone')) data.phone = values[i];
             else if (header.includes('email')) data.email = values[i];
             else if (header.includes('company')) data.company = values[i];
@@ -377,7 +412,7 @@ const Dashboard: React.FC = () => {
       case 'manual-dialer':
         return <ManualDialer onCall={handleManualCall} disabled={!isTwilioReady} />;
       case 'history':
-        return <CallHistory history={callHistory} />;
+        return <CallHistoryAdvanced />;
       case 'settings':
         return (
           <Settings 
@@ -396,7 +431,14 @@ const Dashboard: React.FC = () => {
           />
         ) : null;
       case 'lead-lists':
-        return <Suspense fallback={<LoadingSpinner />}><LeadListManager prospects={prospects} teamMembers={teamMembers} /></Suspense>;
+        return <Suspense fallback={<LoadingSpinner />}>
+          <LeadListManager 
+            prospects={prospects} 
+            teamMembers={teamMembers} 
+            openImportModal={openImportModal}
+            onImportModalClose={() => setOpenImportModal(false)}
+          />
+        </Suspense>;
       case 'sales-floor':
         return <SalesFloor teamMembers={teamMembers} />;
       default:

@@ -124,6 +124,14 @@ export const backendAPI = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(prospect)
     });
+    
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      const error = new Error(errorData.error || `Failed to create prospect (${res.status})`);
+      (error as any).status = res.status;
+      throw error;
+    }
+    
     return res.json();
   },
 
@@ -497,5 +505,157 @@ export const backendAPI = {
     });
     const data = await res.json();
     return data.logs;
+  },
+
+  // --- Voicemails ---
+
+  async getVoicemails(): Promise<Array<{
+    id: string;
+    userId: string;
+    name: string;
+    description: string;
+    audioData: string;
+    duration: number;
+    isDefault: boolean;
+    usageCount: number;
+    createdAt: string;
+    updatedAt: string;
+  }>> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/voicemails`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch voicemails: ${res.status}`);
+    }
+    const data = await res.json();
+    return data.voicemails || [];
+  },
+
+  async createVoicemail(voicemail: {
+    name: string;
+    description?: string;
+    audioData: string;
+    duration?: number;
+  }): Promise<{
+    id: string;
+    userId: string;
+    name: string;
+    description: string;
+    audioData: string;
+    duration: number;
+    isDefault: boolean;
+    usageCount: number;
+    createdAt: string;
+    updatedAt: string;
+  }> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/voicemails`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      },
+      body: JSON.stringify(voicemail)
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || `Failed to create voicemail: ${res.status}`);
+    }
+    const data = await res.json();
+    return data.voicemail;
+  },
+
+  async updateVoicemail(id: string, updates: {
+    name?: string;
+    description?: string;
+    audioData?: string;
+    duration?: number;
+  }): Promise<{
+    id: string;
+    userId: string;
+    name: string;
+    description: string;
+    audioData: string;
+    duration: number;
+    isDefault: boolean;
+    usageCount: number;
+    createdAt: string;
+    updatedAt: string;
+  }> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/voicemails/${id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      },
+      body: JSON.stringify(updates)
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || `Failed to update voicemail: ${res.status}`);
+    }
+    const data = await res.json();
+    return data.voicemail;
+  },
+
+  async deleteVoicemail(id: string): Promise<void> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/voicemails/${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || `Failed to delete voicemail: ${res.status}`);
+    }
+  },
+
+  async setDefaultVoicemail(id: string): Promise<void> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/voicemails/${id}/default`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || `Failed to set default voicemail: ${res.status}`);
+    }
+  },
+
+  async getVoicemailStats(): Promise<{
+    totalVoicemails: number;
+    totalDrops: number;
+    recentDrops: Array<{
+      voicemailName: string;
+      prospectName: string;
+      droppedAt: string;
+    }>;
+  }> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/voicemails/stats`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch voicemail stats: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  async logVoicemailDrop(voicemailId: string, prospectId: string, callSid?: string): Promise<void> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/voicemails/drop-log`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      },
+      body: JSON.stringify({ voicemailId, prospectId, callSid })
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || `Failed to log voicemail drop: ${res.status}`);
+    }
   }
 };

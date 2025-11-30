@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { backendAPI } from '../services/BackendAPI';
 import { TwilioPhoneNumber } from '../types';
-import { Check, RefreshCw, Smartphone, Server } from 'lucide-react';
+import { Check, RefreshCw, Smartphone, Server, Volume2 } from 'lucide-react';
+import { VoicemailManager } from './VoicemailManager';
 
 interface Props {
   currentCallerId: string | null;
@@ -107,6 +108,11 @@ export const Settings: React.FC<Props> = ({ currentCallerId, onSetCallerId }) =>
             To add more numbers, purchase them in your Twilio Console.
           </p>
         </div>
+      </div>
+      
+      {/* Voicemail Management */}
+      <div className="mt-8">
+        <VoicemailManager />
       </div>
     </div>
   );

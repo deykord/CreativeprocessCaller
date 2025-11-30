@@ -6,6 +6,7 @@ import {
   PhoneMissed, PhoneIncoming, PhoneOutgoing, Voicemail, UserX, Clock
 } from 'lucide-react';
 import { backendAPI } from '../services/BackendAPI';
+import { liveTwilioService } from '../services/LiveTwilioService';
 import ActivityLog from './ActivityLog';
 import PhoneCallHistory from './PhoneCallHistory';
 
@@ -85,6 +86,20 @@ const PowerDialer: React.FC<Props> = ({
   const [selectedSpeaker, setSelectedSpeaker] = useState<string>('');
   const [micMuted, setMicMuted] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  
+  // Voicemail states
+  const [voicemails, setVoicemails] = useState<Array<{
+    id: string;
+    name: string;
+    duration: number;
+    isDefault: boolean;
+    audioData: string;
+    usageCount: number;
+  }>>([]);
+  const [selectedVoicemailId, setSelectedVoicemailId] = useState<string>('');
+  
+  // Flag to prevent status polling from overwriting manual disconnect
+  const isManuallyDisconnectedRef = useRef(false);
 
   const isAdvancingRef = React.useRef(false);
   const isCallingRef = React.useRef(false);
@@ -129,6 +144,9 @@ const PowerDialer: React.FC<Props> = ({
   // Real-time call status polling from Twilio
   const pollCallStatus = useCallback(async () => {
     if (!currentCallSid) return;
+    
+    // Don't poll if manually disconnected - user is in disposition selection
+    if (isManuallyDisconnectedRef.current) return;
     
     try {
       const status = await backendAPI.getCallStatus(currentCallSid);
@@ -334,8 +352,6 @@ const PowerDialer: React.FC<Props> = ({
     if (!currentProspect) return;
 
     setCallDispositions(prev => ({ ...prev, [currentProspect.id]: selectedDisposition }));
-    setCallStatus('ended');
-    stopCallStatusPolling();
     
     try {
       await backendAPI.logCall({
@@ -350,15 +366,22 @@ const PowerDialer: React.FC<Props> = ({
         endReason: callEndReason || undefined,
         callSid: currentCallSid || undefined
       });
+      
+      // Update prospect status to Contacted
+      await backendAPI.updateProspect(currentProspect.id, { status: 'Contacted' });
     } catch (error) {
       console.error('Failed to log call:', error);
     }
 
-    // Reset call tracking state
+    // Reset call tracking state after logging
     setCurrentCallSid(null);
     setCallEndReason(null);
     setTwilioCallStatus(null);
     setCallNote('');
+    setCallStatus('idle');
+    setCallTimer(0);
+    isManuallyDisconnectedRef.current = false;
+    stopCallStatusPolling();
   };
 
   // Log & Dial Next
@@ -370,11 +393,24 @@ const PowerDialer: React.FC<Props> = ({
     }, 300);
   };
 
-  // Disconnect current call - logs the call and updates status
+  // Disconnect current call - ends the call but lets user select disposition
   const handleDisconnect = async () => {
     if (!currentProspect) return;
     
-    // If we have a real call SID, end it via API
+    // Mark as manually disconnected to prevent polling from overwriting status
+    isManuallyDisconnectedRef.current = true;
+    
+    // Stop polling FIRST before any async operations
+    stopCallStatusPolling();
+    
+    // Set status to ended immediately - this stops the timer
+    setCallStatus('ended');
+    
+    // IMPORTANT: Disconnect the local Twilio Device/Call
+    // This sends the hangup signal to Twilio and terminates the WebRTC connection
+    liveTwilioService.disconnect();
+    
+    // Also end it via API to ensure Twilio server-side is updated
     if (currentCallSid) {
       try {
         const result = await backendAPI.endCall(currentCallSid);
@@ -382,40 +418,15 @@ const PowerDialer: React.FC<Props> = ({
         console.log('Call ended via API:', result);
       } catch (error) {
         console.error('Failed to end call via API:', error);
+        // Still set a default end reason
+        setCallEndReason(CallEndReason.AGENT_HANGUP);
       }
+    } else {
+      setCallEndReason(CallEndReason.AGENT_HANGUP);
     }
     
-    setCallStatus('ended');
-    stopCallStatusPolling();
-    
-    // Log the call with current disposition and end reason
-    try {
-      await backendAPI.logCall({
-        prospectName: `${currentProspect.firstName} ${currentProspect.lastName}`,
-        phoneNumber: currentProspect.phone,
-        duration: callTimer,
-        outcome: selectedDisposition,
-        note: callNote,
-        fromNumber: callFromNumber,
-        timestamp: new Date().toISOString(),
-        prospectId: currentProspect.id,
-        endReason: CallEndReason.AGENT_HANGUP,
-        callSid: currentCallSid || undefined
-      });
-      
-      // Update prospect status to Contacted
-      await backendAPI.updateProspect(currentProspect.id, { status: 'Contacted' });
-      
-      // Update local state
-      setCallDispositions(prev => ({ ...prev, [currentProspect.id]: selectedDisposition }));
-    } catch (error) {
-      console.error('Failed to log call on disconnect:', error);
-    }
-    
-    // Reset call tracking state
-    setCurrentCallSid(null);
-    setCallEndReason(null);
-    setTwilioCallStatus(null);
+    // DON'T log the call here - let the user select disposition first
+    // DON'T reset call tracking state - keep it for logging
   };
 
   useEffect(() => {
@@ -431,6 +442,24 @@ const PowerDialer: React.FC<Props> = ({
       }
     };
     loadTwilioNumbers();
+  }, []);
+  
+  // Load voicemails
+  useEffect(() => {
+    const loadVoicemails = async () => {
+      try {
+        const vms = await backendAPI.getVoicemails();
+        setVoicemails(vms);
+        // Auto-select default voicemail
+        const defaultVm = vms.find(v => v.isDefault);
+        if (defaultVm) {
+          setSelectedVoicemailId(defaultVm.id);
+        }
+      } catch (error) {
+        console.error('Failed to load voicemails:', error);
+      }
+    };
+    loadVoicemails();
   }, []);
 
   useEffect(() => {
@@ -487,6 +516,7 @@ const PowerDialer: React.FC<Props> = ({
       setCurrentCallSid(null);
       setCallEndReason(null);
       setTwilioCallStatus(null);
+      isManuallyDisconnectedRef.current = false;
 
       const nextProspect = currentQueue[nextIndex];
       if (shouldCall && nextProspect) {
@@ -689,10 +719,21 @@ const PowerDialer: React.FC<Props> = ({
 
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Voicemail</label>
-              <select className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-white">
-                <option>No voicemail</option>
-                <option>Best voicemail</option>
+              <select 
+                value={selectedVoicemailId}
+                onChange={(e) => setSelectedVoicemailId(e.target.value)}
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-white"
+              >
+                <option value="">No voicemail</option>
+                {voicemails.map((vm) => (
+                  <option key={vm.id} value={vm.id}>
+                    {vm.name} {vm.isDefault ? '(Default)' : ''} - {Math.floor(vm.duration / 60)}:{(vm.duration % 60).toString().padStart(2, '0')}
+                  </option>
+                ))}
               </select>
+              <p className="text-xs text-blue-600 mt-1 cursor-pointer hover:underline">
+                {voicemails.length === 0 ? 'Record your first voicemail' : 'Manage voicemails'}
+              </p>
             </div>
           </div>
         </div>
@@ -829,7 +870,15 @@ const PowerDialer: React.FC<Props> = ({
                   </button>
                 </div>
                 <div className="col-span-1">
-                  <Linkedin className="w-4 h-4 text-blue-600" />
+                  <a
+                    href={`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(`${currentProspect.firstName} ${currentProspect.lastName}`)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-800 transition-colors"
+                    title={`Search LinkedIn for ${currentProspect.firstName} ${currentProspect.lastName}`}
+                  >
+                    <Linkedin className="w-4 h-4" />
+                  </a>
                 </div>
                 <div className="col-span-2 text-sm text-gray-600 dark:text-gray-400">
                   {currentProspect.timezone?.split('/')[1]?.replace('_', ' ') || 'San Diego'}
@@ -848,7 +897,13 @@ const PowerDialer: React.FC<Props> = ({
                   <div>
                     <h3 className="text-xl font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                       {currentProspect.firstName} {currentProspect.lastName}
-                      <a href="#" className="text-blue-600 hover:text-blue-700">
+                      <a
+                        href={`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(`${currentProspect.firstName} ${currentProspect.lastName}`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-700"
+                        title={`Search LinkedIn for ${currentProspect.firstName} ${currentProspect.lastName}`}
+                      >
                         <Linkedin className="w-5 h-5" />
                       </a>
                     </h3>
@@ -865,13 +920,45 @@ const PowerDialer: React.FC<Props> = ({
                       <Settings className="w-4 h-4 text-gray-400" />
                     </button>
                     {!['completed', 'busy', 'no-answer', 'failed', 'canceled', 'ended'].includes(callStatus) ? (
-                      <button 
-                        onClick={handleDisconnect}
-                        className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-md text-sm font-medium flex items-center gap-2"
-                      >
-                        <PhoneOff className="w-4 h-4" />
-                        End Call
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {/* Drop Voicemail button - only show when voicemail is selected and call is in progress */}
+                        {selectedVoicemailId && ['in-progress', 'connected', 'ringing'].includes(callStatus) && (
+                          <button 
+                            onClick={async () => {
+                              const selectedVm = voicemails.find(v => v.id === selectedVoicemailId);
+                              if (selectedVm && currentProspect) {
+                                try {
+                                  // Log the voicemail drop
+                                  await backendAPI.logVoicemailDrop(selectedVoicemailId, currentProspect.id, currentCallSid || undefined);
+                                  // Update local usage count
+                                  setVoicemails(prev => prev.map(v => 
+                                    v.id === selectedVoicemailId 
+                                      ? { ...v, usageCount: v.usageCount + 1 } 
+                                      : v
+                                  ));
+                                  // TODO: Actually play the voicemail audio into the call via Twilio
+                                  alert(`Voicemail "${selectedVm.name}" dropped for ${currentProspect.firstName}! (Simulated - Twilio integration needed)`);
+                                } catch (error) {
+                                  console.error('Failed to drop voicemail:', error);
+                                  alert('Failed to drop voicemail');
+                                }
+                              }
+                            }}
+                            className="px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-md text-sm font-medium flex items-center gap-2"
+                            title={`Drop voicemail: ${voicemails.find(v => v.id === selectedVoicemailId)?.name}`}
+                          >
+                            <Voicemail className="w-4 h-4" />
+                            Drop VM
+                          </button>
+                        )}
+                        <button 
+                          onClick={handleDisconnect}
+                          className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-md text-sm font-medium flex items-center gap-2"
+                        >
+                          <PhoneOff className="w-4 h-4" />
+                          End Call
+                        </button>
+                      </div>
                     ) : (
                       <div className="flex items-center gap-2">
                         {callEndReason && (
@@ -1057,7 +1144,15 @@ const PowerDialer: React.FC<Props> = ({
                     <div className="flex items-center justify-between mb-3">
                       <h4 className="text-base font-semibold text-gray-900 dark:text-white">Next dial</h4>
                       <div className="flex items-center gap-2">
-                        <Linkedin className="w-4 h-4 text-blue-600" />
+                        <a
+                          href={`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(`${nextProspect.firstName} ${nextProspect.lastName}`)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-800 transition-colors"
+                          title={`Search LinkedIn for ${nextProspect.firstName} ${nextProspect.lastName}`}
+                        >
+                          <Linkedin className="w-4 h-4" />
+                        </a>
                       </div>
                     </div>
                     <div className="space-y-2 text-sm">
@@ -1144,7 +1239,15 @@ const PowerDialer: React.FC<Props> = ({
                   </button>
                 </div>
                 <div className="col-span-1">
-                  <Linkedin className="w-4 h-4 text-gray-400" />
+                  <a
+                    href={`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(`${prospect.firstName} ${prospect.lastName}`)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-gray-400 hover:text-blue-600 transition-colors"
+                    title={`Search LinkedIn for ${prospect.firstName} ${prospect.lastName}`}
+                  >
+                    <Linkedin className="w-4 h-4" />
+                  </a>
                 </div>
                 <div className="col-span-2 text-sm text-gray-600 dark:text-gray-400">
                   {prospect.timezone?.split('/')[1]?.replace('_', ' ') || 'San Diego'}

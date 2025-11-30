@@ -1,14 +1,30 @@
-import React, { useState, useEffect } from 'react';
-import { LeadList, LeadListPermission, User } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { LeadList, LeadListPermission, User, Prospect } from '../types';
 import { backendAPI } from '../services/BackendAPI';
-import { Plus, Trash2, Share2, Eye, Edit, Lock, Users } from 'lucide-react';
+import { Plus, Trash2, Share2, Eye, Edit, Lock, Users, Upload, FileText, CheckCircle, X, ArrowRight, ArrowLeft, AlertTriangle, Loader2 } from 'lucide-react';
+
+// Define prospect fields that can be mapped
+const PROSPECT_FIELDS = [
+  { key: 'firstName', label: 'First Name', required: true },
+  { key: 'lastName', label: 'Last Name', required: true },
+  { key: 'phone', label: 'Phone', required: true },
+  { key: 'email', label: 'Email', required: false },
+  { key: 'company', label: 'Company', required: false },
+  { key: 'title', label: 'Title', required: false },
+  { key: 'timezone', label: 'Timezone', required: false },
+  { key: 'notes', label: 'Notes', required: false },
+] as const;
+
+type FieldMapping = Record<string, string>; // csvHeader -> prospectField
 
 interface Props {
   prospects?: any[];
   teamMembers?: User[];
+  openImportModal?: boolean;
+  onImportModalClose?: () => void;
 }
 
-export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers = [] }) => {
+export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers = [], openImportModal = false, onImportModalClose }) => {
   const [leadLists, setLeadLists] = useState<LeadList[]>([]);
   const [permissions, setPermissions] = useState<Map<string, LeadListPermission[]>>(new Map());
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -35,6 +51,26 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
     canEdit: false,
   });
 
+  // CSV Import State
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importStep, setImportStep] = useState(1);
+  const [importListName, setImportListName] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [csvData, setCsvData] = useState<string[][]>([]);
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Field Mapping State (Step 2)
+  const [fieldMappings, setFieldMappings] = useState<FieldMapping>({});
+  const [mappingErrors, setMappingErrors] = useState<string[]>([]);
+
+  // Import Preview State (Step 3)
+  const [previewData, setPreviewData] = useState<Partial<Prospect>[]>([]);
+  const [importProgress, setImportProgress] = useState(0);
+  const [importStatus, setImportStatus] = useState<'idle' | 'importing' | 'success' | 'error'>('idle');
+  const [importResults, setImportResults] = useState<{ success: number; failed: number; errors: string[] }>({ success: 0, failed: 0, errors: [] });
+
   // Load lead lists
   useEffect(() => {
     setIsMounted(true);
@@ -43,6 +79,15 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
       setIsMounted(false);
     };
   }, []);
+
+  // Handle openImportModal prop from parent
+  useEffect(() => {
+    if (openImportModal) {
+      setShowImportModal(true);
+      // Reset the prop via callback
+      onImportModalClose?.();
+    }
+  }, [openImportModal, onImportModalClose]);
 
   const loadLeadLists = async () => {
     try {
@@ -229,6 +274,327 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
     setShowPermissionsModal(true);
   };
 
+  // CSV Import Functions
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (!file.name.endsWith('.csv')) {
+        setError('Please select a CSV file');
+        return;
+      }
+      setSelectedFile(file);
+      parseCSV(file);
+    }
+  };
+
+  const parseCSV = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result as string;
+        const lines = text.split(/\r?\n/).filter(line => line.trim());
+        
+        if (lines.length === 0) {
+          setError('CSV file is empty');
+          return;
+        }
+
+        // Parse headers
+        const headers = parseCSVLine(lines[0]);
+        
+        // Parse data rows (limit to first 10000 rows to prevent memory issues)
+        const maxRows = Math.min(lines.length - 1, 10000);
+        const data: string[][] = [];
+        
+        for (let i = 1; i <= maxRows; i++) {
+          const values = parseCSVLine(lines[i]);
+          if (values.length > 0) {
+            data.push(values);
+          }
+        }
+        
+        setCsvHeaders(headers);
+        setCsvData(data);
+        
+        if (lines.length - 1 > maxRows) {
+          setError(`Large file: Only first ${maxRows} rows will be imported`);
+        }
+      } catch (err) {
+        console.error('CSV parse error:', err);
+        setError('Failed to parse CSV file. Please check the file format.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // Robust CSV line parser
+  const parseCSVLine = (line: string): string[] => {
+    const values: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      const nextChar = line[i + 1];
+      
+      if (inQuotes) {
+        if (char === '"' && nextChar === '"') {
+          current += '"';
+          i++; // Skip next quote
+        } else if (char === '"') {
+          inQuotes = false;
+        } else {
+          current += char;
+        }
+      } else {
+        if (char === '"') {
+          inQuotes = true;
+        } else if (char === ',') {
+          values.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+    }
+    
+    // Don't forget the last value
+    values.push(current.trim());
+    
+    return values;
+  };
+
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const file = event.dataTransfer.files[0];
+    if (file) {
+      if (!file.name.endsWith('.csv')) {
+        setError('Please drop a CSV file');
+        return;
+      }
+      setSelectedFile(file);
+      parseCSV(file);
+    }
+  };
+
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+  };
+
+  const resetImportModal = () => {
+    setShowImportModal(false);
+    setImportStep(1);
+    setImportListName('');
+    setSelectedFile(null);
+    setCsvData([]);
+    setCsvHeaders([]);
+    setIsUploading(false);
+    setFieldMappings({});
+    setMappingErrors([]);
+    setPreviewData([]);
+    setImportProgress(0);
+    setImportStatus('idle');
+    setImportResults({ success: 0, failed: 0, errors: [] });
+  };
+
+  // Auto-detect field mappings based on CSV headers
+  const autoDetectMappings = () => {
+    const mappings: FieldMapping = {};
+    const headerLower = csvHeaders.map(h => h.toLowerCase().replace(/[_\s-]/g, ''));
+    
+    PROSPECT_FIELDS.forEach(field => {
+      const fieldLower = field.key.toLowerCase();
+      const fieldLabel = field.label.toLowerCase().replace(/\s/g, '');
+      
+      // Find matching CSV header
+      const matchIndex = headerLower.findIndex(h => 
+        h === fieldLower || 
+        h === fieldLabel ||
+        h.includes(fieldLower) ||
+        fieldLower.includes(h) ||
+        // Common variations
+        (fieldLower === 'firstname' && (h === 'first' || h === 'fname')) ||
+        (fieldLower === 'lastname' && (h === 'last' || h === 'lname')) ||
+        (fieldLower === 'phone' && (h.includes('phone') || h.includes('mobile') || h.includes('cell'))) ||
+        (fieldLower === 'email' && h.includes('email')) ||
+        (fieldLower === 'company' && (h.includes('company') || h.includes('organization') || h.includes('org'))) ||
+        (fieldLower === 'title' && (h.includes('title') || h.includes('position') || h.includes('jobtitle')))
+      );
+      
+      if (matchIndex !== -1) {
+        mappings[csvHeaders[matchIndex]] = field.key;
+      }
+    });
+    
+    setFieldMappings(mappings);
+  };
+
+  // Validate field mappings
+  const validateMappings = (): boolean => {
+    const errors: string[] = [];
+    const mappedFields = Object.values(fieldMappings);
+    
+    // Check required fields are mapped
+    PROSPECT_FIELDS.filter(f => f.required).forEach(field => {
+      if (!mappedFields.includes(field.key)) {
+        errors.push(`Required field "${field.label}" is not mapped`);
+      }
+    });
+    
+    // Check for duplicate mappings
+    const duplicates = mappedFields.filter((item, index) => mappedFields.indexOf(item) !== index && item !== '');
+    if (duplicates.length > 0) {
+      errors.push(`Duplicate mappings found: ${[...new Set(duplicates)].join(', ')}`);
+    }
+    
+    setMappingErrors(errors);
+    return errors.length === 0;
+  };
+
+  // Generate preview data based on mappings
+  const generatePreview = () => {
+    const preview: Partial<Prospect>[] = [];
+    
+    csvData.forEach((row, index) => {
+      const prospect: Partial<Prospect> = {
+        id: `preview-${index}`,
+        status: 'New',
+        timezone: 'America/Los_Angeles', // Default timezone
+      };
+      
+      Object.entries(fieldMappings).forEach(([csvHeader, prospectField]) => {
+        const headerIndex = csvHeaders.indexOf(csvHeader);
+        if (headerIndex !== -1 && row[headerIndex]) {
+          (prospect as any)[prospectField] = row[headerIndex];
+        }
+      });
+      
+      preview.push(prospect);
+    });
+    
+    setPreviewData(preview);
+  };
+
+  const handleImportNext = () => {
+    if (importStep === 1) {
+      if (!importListName.trim()) {
+        setError('Please enter a list name');
+        return;
+      }
+      if (!selectedFile) {
+        setError('Please select a CSV file');
+        return;
+      }
+      // Auto-detect mappings when moving to step 2
+      autoDetectMappings();
+      setImportStep(2);
+    } else if (importStep === 2) {
+      if (!validateMappings()) {
+        return;
+      }
+      // Generate preview data when moving to step 3
+      generatePreview();
+      setImportStep(3);
+    }
+  };
+
+  const handleImportBack = () => {
+    if (importStep === 2) {
+      setImportStep(1);
+    } else if (importStep === 3) {
+      setImportStep(2);
+    }
+  };
+
+  // Handle the actual import
+  const handleImport = async () => {
+    setImportStatus('importing');
+    setImportProgress(0);
+    
+    const results = { 
+      success: 0, 
+      failed: 0, 
+      duplicates: 0,
+      errors: [] as string[] 
+    };
+    const prospectIds: string[] = [];
+    
+    try {
+      // Create prospects one by one
+      for (let i = 0; i < previewData.length; i++) {
+        const prospect = previewData[i];
+        setImportProgress(Math.round(((i + 1) / previewData.length) * 100));
+        
+        try {
+          // Create prospect via API
+          const newProspect = await backendAPI.createProspect({
+            firstName: prospect.firstName || '',
+            lastName: prospect.lastName || '',
+            phone: prospect.phone || '',
+            email: prospect.email || '',
+            company: prospect.company || '',
+            title: prospect.title || '',
+            timezone: prospect.timezone || 'America/Los_Angeles',
+            notes: prospect.notes || '',
+            status: 'New',
+          });
+          
+          prospectIds.push(newProspect.id);
+          results.success++;
+        } catch (err: any) {
+          // Check if it's a duplicate/conflict error (409)
+          const errorMsg = err.message || '';
+          const isDuplicate = errorMsg.includes('already exists') || 
+                             errorMsg.includes('duplicate') ||
+                             errorMsg.includes('409') ||
+                             err.status === 409;
+          
+          if (isDuplicate) {
+            results.duplicates++;
+            const name = `${prospect.firstName || ''} ${prospect.lastName || ''}`.trim() || 'Unknown';
+            const phone = prospect.phone || 'No phone';
+            results.errors.push(`⚠️ Row ${i + 1}: "${name}" (${phone}) - Contact already exists in database`);
+          } else {
+            results.failed++;
+            results.errors.push(`❌ Row ${i + 1}: ${errorMsg || 'Failed to create prospect'}`);
+          }
+        }
+      }
+      
+      // Create the lead list with all imported prospects
+      if (prospectIds.length > 0) {
+        await backendAPI.createLeadList(importListName, `Imported from ${selectedFile?.name}`, prospectIds);
+      }
+      
+      setImportResults({ ...results, failed: results.failed + results.duplicates });
+      setImportStatus('success');
+      
+      // Reload lead lists
+      await loadLeadLists();
+      
+      // Show appropriate success/warning message
+      if (results.duplicates > 0 && results.success > 0) {
+        setSuccess(`Imported ${results.success} leads into "${importListName}". ${results.duplicates} duplicate(s) skipped.`);
+      } else if (results.duplicates > 0 && results.success === 0) {
+        setError(`All ${results.duplicates} contacts already exist in the database. No new leads imported.`);
+      } else {
+        setSuccess(`Successfully imported ${results.success} leads into "${importListName}"`);
+      }
+      
+      // Don't auto-close if there were errors - let user review
+      if (results.failed === 0 && results.duplicates === 0) {
+        setTimeout(() => {
+          resetImportModal();
+        }, 2000);
+      }
+      
+    } catch (err: any) {
+      console.error('Import failed:', err);
+      setImportStatus('error');
+      setError(`Import failed: ${err.message}`);
+    }
+  };
+
   return (
     <div className="w-full bg-gray-50 dark:bg-slate-900">
       <div className="max-w-7xl mx-auto">
@@ -238,13 +604,22 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
             <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Lead Lists</h2>
             <p className="text-gray-600 dark:text-gray-400">Manage shared lead lists and permissions</p>
           </div>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition"
-          >
-            <Plus size={20} />
-            New List
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 font-semibold rounded-lg transition"
+            >
+              <Upload size={20} />
+              Import CSV
+            </button>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition"
+            >
+              <Plus size={20} />
+              New List
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -606,6 +981,496 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
                     )}
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Import CSV Modal - Step 1 */}
+        {showImportModal && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              {/* Modal Header */}
+              <div className="p-6 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Import Leads from CSV</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Step {importStep} of 3</p>
+                </div>
+                <button
+                  onClick={resetImportModal}
+                  className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              {/* Step Progress Indicator */}
+              <div className="px-6 pt-6">
+                <div className="flex items-center justify-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
+                      importStep >= 1 ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-600 text-gray-500 dark:text-gray-400'
+                    }`}>
+                      {importStep > 1 ? <CheckCircle size={18} /> : '1'}
+                    </div>
+                    <span className={`text-sm font-medium ${
+                      importStep >= 1 ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'
+                    }`}>Upload File</span>
+                  </div>
+                  <div className={`w-16 h-0.5 ${importStep >= 2 ? 'bg-blue-600' : 'bg-gray-200 dark:bg-slate-600'}`}></div>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
+                      importStep >= 2 ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-600 text-gray-500 dark:text-gray-400'
+                    }`}>
+                      {importStep > 2 ? <CheckCircle size={18} /> : '2'}
+                    </div>
+                    <span className={`text-sm font-medium ${
+                      importStep >= 2 ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'
+                    }`}>Map Fields</span>
+                  </div>
+                  <div className={`w-16 h-0.5 ${importStep >= 3 ? 'bg-blue-600' : 'bg-gray-200 dark:bg-slate-600'}`}></div>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${
+                      importStep >= 3 ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-600 text-gray-500 dark:text-gray-400'
+                    }`}>
+                      {importStep > 3 ? <CheckCircle size={18} /> : '3'}
+                    </div>
+                    <span className={`text-sm font-medium ${
+                      importStep >= 3 ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'
+                    }`}>Review & Import</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 1: Upload File */}
+              {importStep === 1 && (
+                <div className="p-6 space-y-6">
+                  {/* List Name */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                      List Name *
+                    </label>
+                    <input
+                      type="text"
+                      value={importListName}
+                      onChange={(e) => setImportListName(e.target.value)}
+                      placeholder="Enter a name for this lead list"
+                      className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
+                    />
+                  </div>
+
+                  {/* File Upload Area */}
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                      Upload CSV File *
+                    </label>
+                    <div
+                      onDrop={handleDrop}
+                      onDragOver={handleDragOver}
+                      onClick={() => fileInputRef.current?.click()}
+                      className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition ${
+                        selectedFile 
+                          ? 'border-green-500 bg-green-50 dark:bg-green-900/20' 
+                          : 'border-gray-300 dark:border-slate-600 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20'
+                      }`}
+                    >
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".csv"
+                        onChange={handleFileSelect}
+                        className="hidden"
+                      />
+                      
+                      {selectedFile ? (
+                        <div className="space-y-3">
+                          <div className="w-16 h-16 mx-auto bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
+                            <FileText size={32} className="text-green-600 dark:text-green-400" />
+                          </div>
+                          <div>
+                            <p className="text-lg font-semibold text-gray-900 dark:text-white">{selectedFile.name}</p>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">
+                              {(selectedFile.size / 1024).toFixed(1)} KB • {csvData.length} records found
+                            </p>
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedFile(null);
+                              setCsvData([]);
+                              setCsvHeaders([]);
+                            }}
+                            className="text-sm text-red-600 dark:text-red-400 hover:underline"
+                          >
+                            Remove file
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <div className="w-16 h-16 mx-auto bg-gray-100 dark:bg-slate-700 rounded-full flex items-center justify-center">
+                            <Upload size={32} className="text-gray-400" />
+                          </div>
+                          <div>
+                            <p className="text-lg font-semibold text-gray-900 dark:text-white">
+                              Drop your CSV file here
+                            </p>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">
+                              or click to browse your files
+                            </p>
+                          </div>
+                          <p className="text-xs text-gray-400 dark:text-gray-500">
+                            Supported format: .csv
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Preview Table */}
+                  {csvData.length > 0 && csvHeaders.length > 0 && (
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                        Preview (First 5 rows)
+                      </label>
+                      <div className="border border-gray-200 dark:border-slate-600 rounded-lg overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-600">
+                            <thead className="bg-gray-50 dark:bg-slate-700">
+                              <tr>
+                                {csvHeaders.slice(0, 6).map((header, idx) => (
+                                  <th key={idx} className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                                    {header}
+                                  </th>
+                                ))}
+                                {csvHeaders.length > 6 && (
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
+                                    +{csvHeaders.length - 6} more
+                                  </th>
+                                )}
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-600">
+                              {csvData.slice(0, 5).map((row, rowIdx) => (
+                                <tr key={rowIdx}>
+                                  {row.slice(0, 6).map((cell, cellIdx) => (
+                                    <td key={cellIdx} className="px-4 py-3 text-sm text-gray-900 dark:text-gray-200 whitespace-nowrap truncate max-w-[150px]">
+                                      {cell || '-'}
+                                    </td>
+                                  ))}
+                                  {row.length > 6 && (
+                                    <td className="px-4 py-3 text-sm text-gray-400 dark:text-gray-500">...</td>
+                                  )}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Step 2: Field Mapping */}
+              {importStep === 2 && (
+                <div className="p-6 space-y-6">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                    <p className="text-sm text-blue-800 dark:text-blue-300">
+                      Map your CSV columns to the corresponding lead fields. Required fields are marked with <span className="text-red-500">*</span>
+                    </p>
+                  </div>
+
+                  {/* Mapping Errors */}
+                  {mappingErrors.length > 0 && (
+                    <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle size={20} className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-semibold text-red-800 dark:text-red-300 mb-1">Please fix the following errors:</p>
+                          <ul className="list-disc list-inside text-sm text-red-700 dark:text-red-400 space-y-1">
+                            {mappingErrors.map((err, idx) => (
+                              <li key={idx}>{err}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Field Mapping Table */}
+                  <div className="border border-gray-200 dark:border-slate-600 rounded-lg overflow-hidden">
+                    <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-600">
+                      <thead className="bg-gray-50 dark:bg-slate-700">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider w-1/3">
+                            CSV Column
+                          </th>
+                          <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider w-16">
+                            →
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider w-1/3">
+                            Map To Field
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                            Sample Data
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-600">
+                        {csvHeaders.map((header, idx) => (
+                          <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-slate-700/50">
+                            <td className="px-4 py-3">
+                              <span className="text-sm font-medium text-gray-900 dark:text-white">{header}</span>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <ArrowRight size={16} className="text-gray-400 mx-auto" />
+                            </td>
+                            <td className="px-4 py-3">
+                              <select
+                                value={fieldMappings[header] || ''}
+                                onChange={(e) => {
+                                  setFieldMappings(prev => ({
+                                    ...prev,
+                                    [header]: e.target.value
+                                  }));
+                                  setMappingErrors([]); // Clear errors on change
+                                }}
+                                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              >
+                                <option value="">-- Don't import --</option>
+                                {PROSPECT_FIELDS.map(field => (
+                                  <option key={field.key} value={field.key}>
+                                    {field.label} {field.required && '*'}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="text-sm text-gray-500 dark:text-gray-400 truncate block max-w-[200px]">
+                                {csvData[0]?.[idx] || '-'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mapping Summary */}
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600 dark:text-gray-400">
+                      {Object.values(fieldMappings).filter(v => v).length} of {csvHeaders.length} columns mapped
+                    </span>
+                    <button
+                      onClick={autoDetectMappings}
+                      className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                    >
+                      Auto-detect mappings
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 3: Review & Import */}
+              {importStep === 3 && (
+                <div className="p-6 space-y-6">
+                  {importStatus === 'idle' && (
+                    <>
+                      {/* Import Summary */}
+                      <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                        <div className="flex items-center gap-3">
+                          <CheckCircle size={24} className="text-green-600 dark:text-green-400" />
+                          <div>
+                            <p className="font-semibold text-green-800 dark:text-green-300">Ready to import</p>
+                            <p className="text-sm text-green-700 dark:text-green-400">
+                              {previewData.length} leads will be imported into "{importListName}"
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Field Summary */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Field Mappings</h4>
+                        <div className="grid grid-cols-2 gap-2">
+                          {Object.entries(fieldMappings).filter(([_, v]) => v).map(([csvCol, field]) => {
+                            const fieldDef = PROSPECT_FIELDS.find(f => f.key === field);
+                            return (
+                              <div key={csvCol} className="flex items-center gap-2 text-sm bg-gray-50 dark:bg-slate-700 rounded px-3 py-2">
+                                <span className="text-gray-600 dark:text-gray-400">{csvCol}</span>
+                                <ArrowRight size={14} className="text-gray-400" />
+                                <span className="font-medium text-gray-900 dark:text-white">{fieldDef?.label}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Preview Table */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Preview (First 5 leads)</h4>
+                        <div className="border border-gray-200 dark:border-slate-600 rounded-lg overflow-hidden">
+                          <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-600">
+                              <thead className="bg-gray-50 dark:bg-slate-700">
+                                <tr>
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">#</th>
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Name</th>
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Phone</th>
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Email</th>
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Company</th>
+                                </tr>
+                              </thead>
+                              <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-600">
+                                {previewData.slice(0, 5).map((prospect, idx) => (
+                                  <tr key={idx}>
+                                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{idx + 1}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
+                                      {prospect.firstName} {prospect.lastName}
+                                    </td>
+                                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{prospect.phone || '-'}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{prospect.email || '-'}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{prospect.company || '-'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                        {previewData.length > 5 && (
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
+                            And {previewData.length - 5} more leads...
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {/* Importing Progress */}
+                  {importStatus === 'importing' && (
+                    <div className="text-center py-8">
+                      <Loader2 size={48} className="mx-auto text-blue-600 animate-spin mb-4" />
+                      <p className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Importing leads...</p>
+                      <div className="w-full max-w-xs mx-auto bg-gray-200 dark:bg-slate-700 rounded-full h-2 mb-2">
+                        <div 
+                          className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${importProgress}%` }}
+                        ></div>
+                      </div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">{importProgress}% complete</p>
+                    </div>
+                  )}
+
+                  {/* Import Success */}
+                  {importStatus === 'success' && (
+                    <div className="py-6">
+                      <div className="text-center mb-4">
+                        <div className="w-16 h-16 mx-auto bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
+                          <CheckCircle size={32} className="text-green-600 dark:text-green-400" />
+                        </div>
+                        <p className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Import Complete!</p>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                          ✅ <span className="font-medium text-green-600">{importResults.success}</span> leads imported successfully
+                        </p>
+                        {importResults.failed > 0 && (
+                          <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
+                            ⚠️ <span className="font-medium">{importResults.failed}</span> contacts skipped (duplicates or errors)
+                          </p>
+                        )}
+                      </div>
+                      
+                      {/* Error Details */}
+                      {importResults.errors.length > 0 && (
+                        <div className="mt-4 max-h-48 overflow-y-auto border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 rounded-lg p-4">
+                          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-2 flex items-center gap-2">
+                            <AlertTriangle size={16} />
+                            Skipped Contacts:
+                          </p>
+                          <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-1">
+                            {importResults.errors.slice(0, 20).map((error, idx) => (
+                              <li key={idx} className="break-words">{error}</li>
+                            ))}
+                            {importResults.errors.length > 20 && (
+                              <li className="font-medium">...and {importResults.errors.length - 20} more</li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {/* Close button if there were errors */}
+                      {importResults.failed > 0 && (
+                        <div className="mt-4 text-center">
+                          <button
+                            onClick={resetImportModal}
+                            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition"
+                          >
+                            Done
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Import Error */}
+                  {importStatus === 'error' && (
+                    <div className="text-center py-8">
+                      <div className="w-16 h-16 mx-auto bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mb-4">
+                        <AlertTriangle size={32} className="text-red-600 dark:text-red-400" />
+                      </div>
+                      <p className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Import Failed</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        {importResults.errors[0] || 'An error occurred during import'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Modal Footer */}
+              <div className="p-6 border-t border-gray-200 dark:border-slate-700 flex justify-between">
+                {importStep === 1 ? (
+                  <button
+                    onClick={resetImportModal}
+                    className="px-6 py-2 border border-gray-300 dark:border-slate-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 font-semibold transition"
+                  >
+                    Cancel
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleImportBack}
+                    disabled={importStatus === 'importing'}
+                    className="px-6 py-2 border border-gray-300 dark:border-slate-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 font-semibold transition disabled:opacity-50 flex items-center gap-2"
+                  >
+                    <ArrowLeft size={16} />
+                    Back
+                  </button>
+                )}
+                
+                {importStep < 3 ? (
+                  <button
+                    onClick={handleImportNext}
+                    disabled={importStep === 1 && (!importListName.trim() || !selectedFile)}
+                    className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition flex items-center gap-2"
+                  >
+                    Next Step
+                    <ArrowRight size={16} />
+                  </button>
+                ) : importStatus === 'idle' ? (
+                  <button
+                    onClick={handleImport}
+                    className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition flex items-center gap-2"
+                  >
+                    <Upload size={16} />
+                    Import {previewData.length} Leads
+                  </button>
+                ) : importStatus === 'success' ? (
+                  <button
+                    onClick={resetImportModal}
+                    className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition"
+                  >
+                    Done
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>

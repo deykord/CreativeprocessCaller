@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Prospect } from '../types';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Prospect, LeadList } from '../types';
 import { 
   Play, Pause, Phone, User, ChevronDown, ChevronLeft, ChevronRight,
-  Mic, Volume2, Settings, Linkedin, AlertCircle, Check
+  Mic, Volume2, Settings, Linkedin, AlertCircle, Check, MoreVertical,
+  CheckCircle, RefreshCw, Trash2, X, Plus, Upload
 } from 'lucide-react';
 import { backendAPI } from '../services/BackendAPI';
 
@@ -79,6 +80,17 @@ const PowerDialerOrum: React.FC<Props> = ({
   const [micVolume, setMicVolume] = useState(80);
   const [speakerVolume, setSpeakerVolume] = useState(80);
 
+  // Lead List States
+  const [leadLists, setLeadLists] = useState<LeadList[]>([]);
+  const [showListDropdown, setShowListDropdown] = useState(false);
+  const [hoveredListId, setHoveredListId] = useState<string | null>(null);
+  const [showReassignModal, setShowReassignModal] = useState(false);
+  const [listToReassign, setListToReassign] = useState<LeadList | null>(null);
+  const [reassignUserId, setReassignUserId] = useState('');
+  const [showDeleteListModal, setShowDeleteListModal] = useState(false);
+  const [listToDelete, setListToDelete] = useState<LeadList | null>(null);
+  const listDropdownRef = useRef<HTMLDivElement>(null);
+
   const isAdvancingRef = React.useRef(false);
   const isCallingRef = React.useRef(false);
   const stableQueueRef = React.useRef<Prospect[]>([]);
@@ -108,6 +120,31 @@ const PowerDialerOrum: React.FC<Props> = ({
     currentIndexRef.current = currentIndex;
   }, [currentIndex]);
 
+  // Load lead lists
+  useEffect(() => {
+    const loadLeadLists = async () => {
+      try {
+        const lists = await backendAPI.getLeadLists();
+        setLeadLists(lists);
+      } catch (err) {
+        console.error('Failed to load lead lists:', err);
+      }
+    };
+    loadLeadLists();
+  }, []);
+
+  // Close list dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (listDropdownRef.current && !listDropdownRef.current.contains(event.target as Node)) {
+        setShowListDropdown(false);
+        setHoveredListId(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   // Call timer effect
   useEffect(() => {
     if (!isActive || isPaused || callStatus === 'ended') return;
@@ -136,6 +173,61 @@ const PowerDialerOrum: React.FC<Props> = ({
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Lead List Action Handlers
+  const handleUseList = (list: LeadList) => {
+    setSelectedList(list.id);
+    setShowListDropdown(false);
+    setHoveredListId(null);
+  };
+
+  const handleReassignList = (list: LeadList) => {
+    setListToReassign(list);
+    setShowReassignModal(true);
+    setShowListDropdown(false);
+    setHoveredListId(null);
+  };
+
+  const handleDeleteListClick = (list: LeadList) => {
+    setListToDelete(list);
+    setShowDeleteListModal(true);
+    setShowListDropdown(false);
+    setHoveredListId(null);
+  };
+
+  const confirmDeleteList = async () => {
+    if (!listToDelete) return;
+    try {
+      await backendAPI.deleteLeadList(listToDelete.id);
+      setLeadLists(prev => prev.filter(l => l.id !== listToDelete.id));
+      if (selectedList === listToDelete.id) {
+        setSelectedList('current');
+      }
+      setShowDeleteListModal(false);
+      setListToDelete(null);
+    } catch (err) {
+      console.error('Failed to delete list:', err);
+    }
+  };
+
+  const confirmReassignList = async () => {
+    if (!listToReassign || !reassignUserId) return;
+    try {
+      // Add permission to the new user
+      await backendAPI.addLeadListPermission(listToReassign.id, reassignUserId, true, true);
+      setShowReassignModal(false);
+      setListToReassign(null);
+      setReassignUserId('');
+    } catch (err) {
+      console.error('Failed to reassign list:', err);
+    }
+  };
+
+  const getSelectedListName = () => {
+    if (selectedList === 'current') return 'San Diego 1.csv';
+    const list = leadLists.find(l => l.id === selectedList);
+    return list?.name || 'Select a list';
   };
 
   const handleQuickDisposition = async (disp: 'Connected' | 'Voicemail' | 'Busy' | 'No Answer' | 'Meeting Set' | 'Not Interested') => {
@@ -431,7 +523,7 @@ const PowerDialerOrum: React.FC<Props> = ({
   return (
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
       {/* Left Sidebar - Dialer Options (collapsible) */}
-      <div className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+      <div className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col overflow-visible">
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Dialer options</h3>
@@ -441,25 +533,177 @@ const PowerDialerOrum: React.FC<Props> = ({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-5">
-          {/* List Selector */}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-              List
-            </label>
-            <div className="relative">
-              <select
-                value={selectedList}
-                onChange={(e) => setSelectedList(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md appearance-none bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+        <div className="flex-1 overflow-y-auto overflow-x-visible p-4 space-y-5">
+          {/* List Selector with Actions */}
+          <div className="relative" ref={listDropdownRef}>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">
+                List
+              </label>
+              <button
+                onClick={() => window.location.href = '#/lead-lists?import=true'}
+                className="p-1 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded transition"
+                title="Add CSV"
               >
-                <option value="current">San Diego 1.csv</option>
-              </select>
-              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                <Plus className="w-4 h-4" />
+              </button>
             </div>
-            <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-              <User className="w-3 h-3" /> Don Vee
-            </p>
+            
+            {/* Custom Dropdown Trigger */}
+            <button
+              onClick={() => setShowListDropdown(!showListDropdown)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center justify-between"
+            >
+              <span className="truncate text-left flex-1">{getSelectedListName()}</span>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <X 
+                  className="w-4 h-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedList('current');
+                  }}
+                />
+                <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showListDropdown ? 'rotate-180' : ''}`} />
+              </div>
+            </button>
+
+            {/* Custom Dropdown Menu */}
+            {showListDropdown && (
+              <div 
+                className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md shadow-lg z-[100]"
+                style={{ width: '220px' }}
+              >
+                {/* RECENTS Header */}
+                <div className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide border-b border-gray-100 dark:border-gray-600">
+                  Recents
+                </div>
+                
+                {/* List Items */}
+                <div className="max-h-60 overflow-y-auto">
+                  {leadLists.length === 0 ? (
+                    <div className="px-3 py-3 text-sm text-gray-500 dark:text-gray-400">
+                      No lead lists available
+                    </div>
+                  ) : (
+                    leadLists.map((list) => (
+                      <div
+                        key={list.id}
+                        className="relative"
+                      >
+                        <div
+                          className={`px-3 py-2.5 flex items-center gap-2 ${
+                            selectedList === list.id ? 'bg-blue-50 dark:bg-blue-900/30' : ''
+                          }`}
+                        >
+                          {/* Clickable name area */}
+                          <div 
+                            className="flex-1 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-600 -ml-3 -my-2.5 pl-3 pr-2 py-2.5 rounded-l"
+                            onClick={() => handleUseList(list)}
+                          >
+                            <div className={`text-sm ${selectedList === list.id ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-800 dark:text-white'}`}>
+                              {list.name}
+                            </div>
+                            <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                              <User className="w-3 h-3" />
+                              <span>{list.createdBy || 'Don Vee'}</span>
+                            </div>
+                          </div>
+                          
+                          {/* Delete (X) button */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteListClick(list);
+                            }}
+                            className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                            title="Delete CSV"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                          
+                          {/* Expand submenu button */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setHoveredListId(hoveredListId === list.id ? null : list.id);
+                            }}
+                            className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-500 transition-colors ${
+                              hoveredListId === list.id ? 'bg-gray-200 dark:bg-gray-500' : ''
+                            }`}
+                            title="More options"
+                          >
+                            <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${hoveredListId === list.id ? 'rotate-90' : ''}`} />
+                          </button>
+                        </div>
+                        
+                        {/* Right Submenu on Click */}
+                        {hoveredListId === list.id && (
+                          <div 
+                            className="fixed bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md shadow-xl py-1 z-[200]"
+                            style={{ 
+                              left: (listDropdownRef.current?.getBoundingClientRect().right || 0) + 8,
+                              top: 'auto',
+                              minWidth: '160px'
+                            }}
+                          >
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleUseList(list);
+                              }}
+                              className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 flex items-center gap-2"
+                            >
+                              <Check className="w-4 h-4 text-gray-600" />
+                              Use this CSV
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleReassignList(list);
+                              }}
+                              className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 flex items-center gap-2"
+                            >
+                              <RefreshCw className="w-4 h-4 text-gray-600" />
+                              Reassign this CSV
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteListClick(list);
+                              }}
+                              className="w-full px-3 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 flex items-center gap-2"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              Delete this CSV
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Import New CSV */}
+                <div className="border-t border-gray-100 dark:border-gray-600">
+                  <button
+                    onClick={() => {
+                      setShowListDropdown(false);
+                      setHoveredListId(null);
+                      // Navigate to lead lists page with import modal
+                      const event = new CustomEvent('openImportModal');
+                      window.dispatchEvent(event);
+                      // Also change view
+                      const navEvent = new CustomEvent('navigateTo', { detail: 'lead-lists' });
+                      window.dispatchEvent(navEvent);
+                    }}
+                    className="w-full px-3 py-2.5 text-left text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 flex items-center gap-2 font-medium"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Import a new CSV
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Parallel Dials */}
@@ -919,7 +1163,16 @@ const PowerDialerOrum: React.FC<Props> = ({
                     )}
                     {visibleColumns.links && (
                       <td className="px-4 py-3">
-                        <Linkedin className="w-4 h-4 text-gray-400" />
+                        <a
+                          href={`https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(`${prospect.firstName} ${prospect.lastName}`)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                          title={`Search LinkedIn for ${prospect.firstName} ${prospect.lastName}`}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Linkedin className="w-4 h-4" />
+                        </a>
                       </td>
                     )}
                     {visibleColumns.city && (
@@ -1073,6 +1326,95 @@ const PowerDialerOrum: React.FC<Props> = ({
           </div>
         </div>
       </div>
+
+      {/* Reassign List Modal */}
+      {showReassignModal && listToReassign && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-6 border-b border-gray-200 dark:border-slate-700">
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Reassign CSV</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Reassign "{listToReassign.name}" to another team member
+              </p>
+            </div>
+            <div className="p-6">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                Select Team Member
+              </label>
+              <select
+                value={reassignUserId}
+                onChange={(e) => setReassignUserId(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Choose a team member...</option>
+                {/* Team members would be loaded here */}
+                <option value="user-1">Team Member 1</option>
+                <option value="user-2">Team Member 2</option>
+              </select>
+            </div>
+            <div className="p-6 border-t border-gray-200 dark:border-slate-700 flex gap-3">
+              <button
+                onClick={() => {
+                  setShowReassignModal(false);
+                  setListToReassign(null);
+                  setReassignUserId('');
+                }}
+                className="flex-1 px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 font-semibold transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmReassignList}
+                disabled={!reassignUserId}
+                className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition flex items-center justify-center gap-2"
+              >
+                <RefreshCw size={16} />
+                Reassign
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete List Confirmation Modal */}
+      {showDeleteListModal && listToDelete && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 dark:bg-red-900/30 rounded-full mb-4">
+                <Trash2 size={24} className="text-red-600 dark:text-red-400" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white text-center mb-2">
+                Delete CSV
+              </h3>
+              <p className="text-gray-600 dark:text-gray-400 text-center mb-4">
+                Are you sure you want to delete <span className="font-semibold">"{listToDelete.name}"</span>?
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-500 text-center mb-6">
+                This action cannot be undone. This list has <span className="font-semibold">{listToDelete.prospectCount}</span> leads.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowDeleteListModal(false);
+                    setListToDelete(null);
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 font-semibold transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDeleteList}
+                  className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={16} />
+                  Delete CSV
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
