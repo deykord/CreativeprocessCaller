@@ -86,7 +86,18 @@ class DatabaseService {
         [firstName, lastName, company, title, phone, email, status, timezone, notes, createdBy]
       );
 
-      return result.rows[0];
+      const newProspect = result.rows[0];
+
+      // Log prospect creation in activity log
+      try {
+        await this.logProspectCreation(newProspect.id, createdBy, {
+          firstName, lastName, company, title, phone, email, status, timezone
+        });
+      } catch (logError) {
+        console.warn('Failed to log prospect creation:', logError);
+      }
+
+      return newProspect;
     } catch (error) {
       console.error('Error creating prospect:', error);
       throw error;
@@ -94,7 +105,7 @@ class DatabaseService {
   }
 
   /**
-   * Update prospect and log status change
+   * Update prospect and log all changes
    */
   async updateProspect(id, updates, updatedBy = null) {
     const client = await pool.connect();
@@ -107,15 +118,39 @@ class DatabaseService {
         throw new Error('Prospect not found');
       }
 
-      const oldStatus = current.rows[0].status;
+      const currentData = current.rows[0];
+      const oldStatus = currentData.status;
 
       // Build update query dynamically
       const fields = [];
       const values = [];
       let paramCount = 1;
+      const changedFields = [];
+
+      // Map frontend field names to database field names
+      const fieldMapping = {
+        firstName: 'first_name',
+        lastName: 'last_name',
+        company: 'company',
+        title: 'title',
+        phone: 'phone',
+        email: 'email',
+        status: 'status',
+        timezone: 'timezone',
+        notes: 'notes',
+        lastCall: 'last_call'
+      };
 
       Object.keys(updates).forEach(key => {
-        const dbKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
+        const dbKey = fieldMapping[key] || key.replace(/([A-Z])/g, '_$1').toLowerCase();
+        const oldValue = currentData[dbKey];
+        const newValue = updates[key];
+        
+        // Track changed fields for activity log
+        if (oldValue !== newValue) {
+          changedFields.push({ field: key, dbField: dbKey, oldValue, newValue });
+        }
+        
         fields.push(`${dbKey} = $${paramCount}`);
         values.push(updates[key]);
         paramCount++;
@@ -123,7 +158,7 @@ class DatabaseService {
 
       if (fields.length === 0) {
         await client.query('COMMIT');
-        return current.rows[0];
+        return currentData;
       }
 
       values.push(id);
@@ -136,16 +171,45 @@ class DatabaseService {
 
       const result = await client.query(updateQuery, values);
 
-      // Log status change if status was updated
+      // Log status change if status was updated (legacy table)
       if (updates.status && updates.status !== oldStatus) {
+        // Check if updatedBy user exists in DB, if not, set to null
+        let validUserId = null;
+        if (updatedBy) {
+          try {
+            const userCheck = await client.query('SELECT id FROM users WHERE id = $1', [updatedBy]);
+            if (userCheck.rows.length > 0) {
+              validUserId = updatedBy;
+            }
+          } catch (e) {
+            // User doesn't exist, leave as null
+          }
+        }
+        
         await client.query(
           `INSERT INTO prospect_status_log (prospect_id, old_status, new_status, changed_by)
            VALUES ($1, $2, $3, $4)`,
-          [id, oldStatus, updates.status, updatedBy]
+          [id, oldStatus, updates.status, validUserId]
         );
       }
 
       await client.query('COMMIT');
+
+      // Log all field changes to activity log (after commit so main operation succeeds)
+      for (const change of changedFields) {
+        try {
+          if (change.field === 'status') {
+            await this.logStatusChange(id, updatedBy, change.oldValue, change.newValue);
+          } else if (change.field === 'notes') {
+            await this.logNoteChange(id, updatedBy, change.oldValue, change.newValue);
+          } else {
+            await this.logFieldUpdate(id, updatedBy, change.field, change.oldValue, change.newValue);
+          }
+        } catch (logError) {
+          console.warn('Failed to log field change:', logError);
+        }
+      }
+
       return result.rows[0];
     } catch (error) {
       await client.query('ROLLBACK');
@@ -409,6 +473,245 @@ class DatabaseService {
       console.log('Database schema initialized successfully');
     } catch (error) {
       console.error('Error initializing schema:', error);
+      throw error;
+    }
+  }
+  /**
+   * Get all call logs (alias for getCallLogs with no filter)
+   */
+  async getAllCallLogs() {
+    return this.getCallLogs(null, 1000);
+  }
+
+  /**
+   * Create a new call log entry
+   */
+  async createCallLog(callData) {
+    try {
+      const {
+        prospectId,
+        userId,
+        callerId,
+        phoneNumber,
+        fromNumber,
+        outcome,
+        duration,
+        notes,
+        recordingUrl,
+        disposition,
+        callSid,
+        endReason,
+        answeredBy
+      } = callData;
+
+      let actualCallerId = callerId || userId || null;
+      
+      // Verify caller exists in DB, if not, set to null
+      if (actualCallerId) {
+        try {
+          const userCheck = await pool.query('SELECT id FROM users WHERE id = $1', [actualCallerId]);
+          if (userCheck.rows.length === 0) {
+            console.log(`Caller ID ${actualCallerId} not found in DB, setting to null`);
+            actualCallerId = null;
+          }
+        } catch (e) {
+          actualCallerId = null;
+        }
+      }
+
+      const result = await pool.query(
+        `INSERT INTO call_logs 
+         (prospect_id, caller_id, phone_number, from_number, outcome, duration, notes, recording_url, call_sid, end_reason, answered_by, ended_at, started_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
+         RETURNING *`,
+        [
+          prospectId || null,
+          actualCallerId,
+          phoneNumber,
+          fromNumber,
+          outcome || disposition || 'No Answer',
+          duration || 0,
+          notes || '',
+          recordingUrl || null,
+          callSid || null,
+          endReason || null,
+          answeredBy || null
+        ]
+      );
+
+      // Log the call activity with end reason
+      if (prospectId) {
+        const endReasonText = endReason ? ` (${endReason})` : '';
+        await this.logActivity(prospectId, actualCallerId, 'call', 
+          `Called prospect - Outcome: ${outcome || disposition || 'No Answer'}${endReasonText}, Duration: ${duration || 0}s`,
+          null, outcome || disposition || 'No Answer', null,
+          { phoneNumber, fromNumber, duration, outcome: outcome || disposition, notes, callLogId: result.rows[0].id, callSid, endReason, answeredBy }
+        );
+      }
+
+      return result.rows[0];
+    } catch (error) {
+      console.error('Error creating call log:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Log an activity for a lead
+   */
+  async logActivity(prospectId, userId, actionType, description, oldValue = null, newValue = null, fieldName = null, metadata = null) {
+    try {
+      const result = await pool.query(
+        `INSERT INTO lead_activity_log 
+         (prospect_id, user_id, action_type, action_description, old_value, new_value, field_name, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING *`,
+        [prospectId, userId, actionType, description, oldValue, newValue, fieldName, metadata ? JSON.stringify(metadata) : null]
+      );
+      return result.rows[0];
+    } catch (error) {
+      console.error('Error logging activity:', error);
+      // Don't throw - activity logging should not break main operations
+      return null;
+    }
+  }
+
+  /**
+   * Get activity log for a prospect
+   */
+  async getProspectActivityLog(prospectId, limit = 100) {
+    try {
+      const result = await pool.query(
+        `SELECT 
+           al.*,
+           u.first_name as user_first_name,
+           u.last_name as user_last_name,
+           u.email as user_email
+         FROM lead_activity_log al
+         LEFT JOIN users u ON al.user_id = u.id
+         WHERE al.prospect_id = $1
+         ORDER BY al.created_at DESC
+         LIMIT $2`,
+        [prospectId, limit]
+      );
+      return result.rows;
+    } catch (error) {
+      console.error('Error getting activity log:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Log prospect creation
+   */
+  async logProspectCreation(prospectId, userId, prospectData) {
+    return this.logActivity(
+      prospectId, 
+      userId, 
+      'created',
+      `Lead created: ${prospectData.firstName} ${prospectData.lastName}`,
+      null,
+      JSON.stringify(prospectData),
+      null,
+      { source: 'manual', ...prospectData }
+    );
+  }
+
+  /**
+   * Log status change
+   */
+  async logStatusChange(prospectId, userId, oldStatus, newStatus, reason = null) {
+    return this.logActivity(
+      prospectId,
+      userId,
+      'status_change',
+      `Status changed from "${oldStatus || 'None'}" to "${newStatus}"${reason ? `: ${reason}` : ''}`,
+      oldStatus,
+      newStatus,
+      'status',
+      { reason }
+    );
+  }
+
+  /**
+   * Log field update
+   */
+  async logFieldUpdate(prospectId, userId, fieldName, oldValue, newValue) {
+    return this.logActivity(
+      prospectId,
+      userId,
+      'field_updated',
+      `${fieldName} updated from "${oldValue || 'empty'}" to "${newValue}"`,
+      oldValue,
+      newValue,
+      fieldName,
+      null
+    );
+  }
+
+  /**
+   * Log note added/edited
+   */
+  async logNoteChange(prospectId, userId, oldNote, newNote) {
+    const actionType = oldNote ? 'note_edited' : 'note_added';
+    const description = oldNote 
+      ? `Note edited` 
+      : `Note added: "${(newNote || '').substring(0, 100)}${(newNote || '').length > 100 ? '...' : ''}"`;
+    
+    return this.logActivity(
+      prospectId,
+      userId,
+      actionType,
+      description,
+      oldNote,
+      newNote,
+      'notes',
+      null
+    );
+  }
+
+  /**
+   * Delete a single call log by ID
+   */
+  async deleteCallLog(id) {
+    try {
+      const result = await pool.query(
+        'DELETE FROM call_logs WHERE id = $1 RETURNING *',
+        [id]
+      );
+      return result.rows[0] || null;
+    } catch (error) {
+      console.error('Error deleting call log:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete multiple call logs by IDs
+   */
+  async deleteCallLogs(ids) {
+    try {
+      if (!ids || ids.length === 0) return [];
+      const result = await pool.query(
+        'DELETE FROM call_logs WHERE id = ANY($1) RETURNING *',
+        [ids]
+      );
+      return result.rows;
+    } catch (error) {
+      console.error('Error deleting call logs:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete all call logs
+   */
+  async deleteAllCallLogs() {
+    try {
+      const result = await pool.query('DELETE FROM call_logs RETURNING *');
+      return result.rows;
+    } catch (error) {
+      console.error('Error deleting all call logs:', error);
       throw error;
     }
   }

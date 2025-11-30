@@ -5,19 +5,21 @@ const authRoutes = require('./auth');
 const tokenRoutes = require('./token');
 const voiceRoutes = require('./voice');
 const prospectRoutes = require('./prospects');
-const prospectExtensionsRoutes = require('./prospectExtensions');
+// const prospectExtensionsRoutes = require('./prospectExtensions'); // Temporarily disabled - has errors
 const callRoutes = require('./calls');
 const messageRoutes = require('./messages');
 const leadListRoutes = require('./leadLists');
+const salesFloorRoutes = require('./salesFloor');
 
 router.use('/auth', authRoutes);
 router.use('/token', tokenRoutes);
 router.use('/voice', voiceRoutes);
 router.use('/prospects', prospectRoutes);
-router.use('/prospects', prospectExtensionsRoutes); // Additional prospect endpoints
+// router.use('/prospects', prospectExtensionsRoutes); // Additional prospect endpoints - temporarily disabled
 router.use('/calls', callRoutes);
 router.use('/messages', messageRoutes);
 router.use('/lead-lists', leadListRoutes);
+router.use('/sales-floor', salesFloorRoutes);
 
 // Alias for recordings upload (frontend posts to /api/recordings/upload)
 router.post('/recordings/upload', require('../controllers/callController').uploadRecording);

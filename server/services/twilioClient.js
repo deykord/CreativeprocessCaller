@@ -1,6 +1,13 @@
 const twilio = require('twilio');
 const config = require('../config/config');
 
+console.log('Twilio credentials:', {
+  accountSid: config.twilio.accountSid,
+  authToken: config.twilio.authToken,
+  apiKey: config.twilio.apiKey,
+  apiSecret: config.twilio.apiSecret
+});
+
 const client = twilio(config.twilio.accountSid, config.twilio.authToken);
 
 module.exports = {

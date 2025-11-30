@@ -1,0 +1,945 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { Prospect } from '../types';
+import { 
+  Play, Pause, Phone, User, ChevronDown, ChevronLeft, ChevronRight,
+  Mic, Volume2, Settings, Linkedin, AlertCircle, Check
+} from 'lucide-react';
+import { backendAPI } from '../services/BackendAPI';
+
+declare global {
+  interface Window {
+    __powerDialerAdvanceToNext?: () => void;
+  }
+}
+
+interface Props {
+  queue: Prospect[];
+  onCall: (prospect: Prospect) => void;
+  disabled?: boolean;
+  dispositionSaved?: boolean;
+  setDispositionSaved?: (v: boolean) => void;
+  onDeleteProspect?: (id: string) => void;
+  onUpdateProspect?: (id: string, updates: Partial<Prospect>) => void;
+  powerDialerPaused?: boolean;
+  setPowerDialerPaused?: (v: boolean) => void;
+}
+
+const PowerDialerOrum: React.FC<Props> = ({
+  queue,
+  onCall,
+  disabled = false,
+  dispositionSaved,
+  setDispositionSaved,
+  powerDialerPaused,
+  setPowerDialerPaused
+}) => {
+  // Session States
+  const [isActive, setIsActive] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [completedIds, setCompletedIds] = useState<string[]>([]);
+  const [callDispositions, setCallDispositions] = useState<Record<string, string>>({});
+  const [stableQueue, setStableQueue] = useState<Prospect[]>([]);
+  
+  // UI States
+  const [activeTab, setActiveTab] = useState<'details' | 'history'>('details');
+  const [disposition, setDisposition] = useState('No Answer');
+  const [callNote, setCallNote] = useState('');
+  
+  // Dialer Options
+  const [selectedList, setSelectedList] = useState('current');
+  const [parallelDials, setParallelDials] = useState(1);
+  const [phoneField, setPhoneField] = useState('Phone');
+  const [callFromNumber, setCallFromNumber] = useState('');
+  const [voicemailOption, setVoicemailOption] = useState('No voicemail');
+  const [twilioNumbers, setTwilioNumbers] = useState<Array<{sid: string; phoneNumber: string; friendlyName?: string}>>([]);
+
+  const isAdvancingRef = React.useRef(false);
+  const isCallingRef = React.useRef(false);
+  const stableQueueRef = React.useRef<Prospect[]>([]);
+  const currentIndexRef = React.useRef(0);
+
+  const effectivePaused = isPaused || Boolean(powerDialerPaused);
+  const activeQueue = isActive ? stableQueue : queue;
+  const currentProspect = activeQueue[currentIndex];
+  const nextProspect = activeQueue[currentIndex + 1];
+
+  React.useEffect(() => {
+    currentIndexRef.current = currentIndex;
+  }, [currentIndex]);
+
+  useEffect(() => {
+    const loadTwilioNumbers = async () => {
+      try {
+        const numbers = await backendAPI.getTwilioNumbers();
+        setTwilioNumbers(numbers);
+        if (numbers.length > 0 && !callFromNumber) {
+          setCallFromNumber(numbers[0].phoneNumber);
+        }
+      } catch (error) {
+        console.error('Failed to load Twilio numbers:', error);
+      }
+    };
+    loadTwilioNumbers();
+  }, []);
+
+  const advanceToNextLead = useCallback((shouldCall: boolean = true) => {
+    if (isAdvancingRef.current || isCallingRef.current) return;
+    isAdvancingRef.current = true;
+
+    const currentQueue = stableQueueRef.current;
+    const prevIndex = currentIndexRef.current;
+
+    if (!currentQueue.length) {
+      isAdvancingRef.current = false;
+      return;
+    }
+
+    const prospectId = currentQueue[prevIndex]?.id;
+    if (prospectId) {
+      setCompletedIds(ids => ids.includes(prospectId) ? ids : [...ids, prospectId]);
+    }
+
+    if (prevIndex < currentQueue.length - 1) {
+      const nextIndex = prevIndex + 1;
+      currentIndexRef.current = nextIndex;
+      setCurrentIndex(nextIndex);
+
+      const nextProspect = currentQueue[nextIndex];
+      if (shouldCall && nextProspect) {
+        isCallingRef.current = true;
+        setTimeout(() => {
+          if (!effectivePaused) {
+            onCall(nextProspect);
+          }
+          isCallingRef.current = false;
+          isAdvancingRef.current = false;
+        }, 500);
+      } else {
+        isAdvancingRef.current = false;
+      }
+    } else {
+      isAdvancingRef.current = false;
+    }
+  }, [onCall, effectivePaused]);
+
+  useEffect(() => {
+    window.__powerDialerAdvanceToNext = advanceToNextLead;
+    return () => {
+      if (window.__powerDialerAdvanceToNext) delete window.__powerDialerAdvanceToNext;
+    };
+  }, [advanceToNextLead]);
+
+  useEffect(() => {
+    if (dispositionSaved && isActive && !isPaused && !powerDialerPaused) {
+      advanceToNextLead(true);
+      if (setDispositionSaved) setDispositionSaved(false);
+    }
+  }, [dispositionSaved, isActive, isPaused, powerDialerPaused, advanceToNextLead, setDispositionSaved]);
+
+  const handleStart = () => {
+    const snapshot = [...queue];
+    stableQueueRef.current = snapshot;
+    currentIndexRef.current = 0;
+    setStableQueue(snapshot);
+    setIsActive(true);
+    setIsPaused(false);
+    setCurrentIndex(0);
+    setCompletedIds([]);
+
+    if (snapshot.length > 0) {
+      isCallingRef.current = true;
+      onCall(snapshot[0]);
+      setTimeout(() => {
+        isCallingRef.current = false;
+      }, 2000);
+    }
+  };
+
+  const handlePauseResume = useCallback(() => {
+    setIsPaused(prev => !prev);
+    if (setPowerDialerPaused) {
+      setPowerDialerPaused(!effectivePaused);
+    }
+  }, [effectivePaused, setPowerDialerPaused]);
+
+  const handleLogAndDialNext = async () => {
+    const currentProspect = stableQueue[currentIndex];
+    if (!currentProspect) return;
+
+    try {
+      // Save call log to database
+      await backendAPI.logCall({
+        prospectId: currentProspect.id,
+        phoneNumber: currentProspect.phone,
+        outcome: disposition,
+        notes: callNote,
+        duration: 0,
+        timestamp: new Date().toISOString()
+      });
+
+      // Track disposition for this prospect
+      setCallDispositions(prev => ({ ...prev, [currentProspect.id]: disposition }));
+
+      // Clear form and advance
+      setDisposition('No Answer');
+      setCallNote('');
+      advanceToNextLead(true);
+    } catch (error) {
+      console.error('Failed to log call:', error);
+      // Still track locally and advance
+      setCallDispositions(prev => ({ ...prev, [currentProspect.id]: disposition }));
+      advanceToNextLead(true);
+    }
+  };
+
+  const handleLogCall = async () => {
+    const currentProspect = stableQueue[currentIndex];
+    if (!currentProspect) return;
+
+    try {
+      // Save call log to database
+      await backendAPI.logCall({
+        prospectId: currentProspect.id,
+        phoneNumber: currentProspect.phone,
+        outcome: disposition,
+        notes: callNote,
+        duration: 0,
+        timestamp: new Date().toISOString()
+      });
+
+      // Track disposition for this prospect
+      setCallDispositions(prev => ({ ...prev, [currentProspect.id]: disposition }));
+
+      // Clear form
+      setDisposition('No Answer');
+      setCallNote('');
+    } catch (error) {
+      console.error('Failed to log call:', error);
+      // Still track locally
+      setCallDispositions(prev => ({ ...prev, [currentProspect.id]: disposition }));
+    }
+  };
+
+  const handleEndSession = () => {
+    setIsActive(false);
+    setIsPaused(false);
+    setCurrentIndex(0);
+    setStableQueue([]);
+    setCompletedIds([]);
+    setCallDispositions({});
+    setDisposition('No Answer');
+    setCallNote('');
+    stableQueueRef.current = [];
+    currentIndexRef.current = 0;
+  };
+
+  const getStatusBadge = (index: number) => {
+    const prospect = stableQueue[index];
+    if (!prospect) return null;
+
+    if (index === currentIndex) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm bg-blue-50 text-blue-700 border border-blue-200">
+          <Phone className="w-3.5 h-3.5 animate-pulse" />
+          Dialing ...
+        </span>
+      );
+    }
+
+    if (completedIds.includes(prospect.id)) {
+      const callDisposition = callDispositions[prospect.id] || 'Ended';
+      
+      // Map dispositions to badge styles
+      const dispositionStyles: Record<string, { bg: string; text: string; border: string; icon: any }> = {
+        'Voicemail': { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200', icon: AlertCircle },
+        'No Answer': { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200', icon: Phone },
+        'Wrong Number': { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', icon: AlertCircle },
+        'Connected': { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200', icon: Check },
+        'Not Interested': { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200', icon: AlertCircle },
+        'Callback': { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', icon: Phone },
+        'Meeting Set': { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200', icon: Check },
+        'Ended': { bg: 'bg-gray-50', text: 'text-gray-600', border: 'border-gray-200', icon: AlertCircle }
+      };
+      
+      const style = dispositionStyles[callDisposition] || dispositionStyles['Ended'];
+      const Icon = style.icon;
+      
+      return (
+        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm ${style.bg} ${style.text} border ${style.border}`}>
+          <Icon className="w-3.5 h-3.5" />
+          {callDisposition}
+        </span>
+      );
+    }
+
+    if (index > currentIndex) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm bg-gray-50 text-gray-600 border border-gray-200">
+          <Phone className="w-3.5 h-3.5" />
+          Upcoming
+        </span>
+      );
+    }
+
+    return null;
+  };
+
+  // Main Layout - Always show table with left sidebar
+  return (
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+      {/* Left Sidebar - Dialer Options (collapsible) */}
+      <div className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Dialer options</h3>
+            <button className="text-gray-400 hover:text-gray-600">
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-5">
+          {/* List Selector */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+              List
+            </label>
+            <div className="relative">
+              <select
+                value={selectedList}
+                onChange={(e) => setSelectedList(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md appearance-none bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="current">San Diego 1.csv</option>
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            </div>
+            <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+              <User className="w-3 h-3" /> Don Vee
+            </p>
+          </div>
+
+          {/* Parallel Dials */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+              Parallel dials
+            </label>
+            <div className="relative">
+              <select
+                value={parallelDials}
+                onChange={(e) => setParallelDials(Number(e.target.value))}
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md appearance-none bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value={1}>1 (Power dialing)</option>
+                <option value={2}>2</option>
+                <option value={3}>3</option>
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Phone Fields */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+              Phone fields
+            </label>
+            <div className="relative">
+              <select
+                value={phoneField}
+                onChange={(e) => setPhoneField(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md appearance-none bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="Phone">Phone</option>
+                <option value="Mobile Phone">Mobile Phone</option>
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Call From Number */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+              Call from number
+            </label>
+            <div className="relative">
+              <select
+                value={callFromNumber}
+                onChange={(e) => setCallFromNumber(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md appearance-none bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={twilioNumbers.length === 0}
+              >
+                {twilioNumbers.length === 0 ? (
+                  <option value="">Loading...</option>
+                ) : (
+                  twilioNumbers.map((num) => (
+                    <option key={num.sid} value={num.phoneNumber}>
+                      {num.phoneNumber}
+                    </option>
+                  ))
+                )}
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            </div>
+            <p className="text-xs text-blue-600 dark:text-blue-400 mt-1 cursor-pointer hover:underline">
+              Callbacks: Add number
+            </p>
+          </div>
+
+          {/* Voicemail */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+              Voicemail
+            </label>
+            <div className="relative">
+
+                {/* List Selector */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    List
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={selectedList}
+                      onChange={(e) => setSelectedList(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg appearance-none bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="current">{queue.length > 0 ? `San Diego 1.csv` : 'Current Queue'}</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+                  </div>
+                </div>
+
+                {/* Parallel Dials */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Parallel dials
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={parallelDials}
+                      onChange={(e) => setParallelDials(Number(e.target.value))}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg appearance-none bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value={1}>1 (Power dialing)</option>
+                      <option value={2}>2</option>
+                      <option value={3}>3</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+                  </div>
+                </div>
+
+                {/* Phone Fields */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Phone fields
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={phoneField}
+                      onChange={(e) => setPhoneField(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg appearance-none bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="Phone">Phone</option>
+                      <option value="Mobile Phone">Mobile Phone</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+                  </div>
+                </div>
+
+                {/* Call From Number */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Call from number
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={callFromNumber}
+                      onChange={(e) => setCallFromNumber(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg appearance-none bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={twilioNumbers.length === 0}
+                    >
+                      {twilioNumbers.length === 0 ? (
+                        <option value="">Loading...</option>
+                      ) : (
+                        twilioNumbers.map((num) => (
+                          <option key={num.sid} value={num.phoneNumber}>
+                            {num.phoneNumber}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Callbacks: Add number</p>
+                </div>
+
+                {/* Voicemail */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Voicemail
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={voicemailOption}
+                      onChange={(e) => setVoicemailOption(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg appearance-none bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="No voicemail">No voicemail</option>
+                      <option value="Best voicemail">Best voicemail</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column - Queue Summary */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4">Queue Summary</h3>
+                
+                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-6 border border-blue-100 dark:border-blue-800">
+                  <div className="text-center">
+                    <div className="text-5xl font-bold text-blue-600 dark:text-blue-400 mb-2">{queue.length}</div>
+                    <div className="text-gray-600 dark:text-gray-400 font-medium">Total Leads</div>
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600 dark:text-gray-400">Ready to call</span>
+                    <span className="font-semibold text-gray-800 dark:text-white">{queue.length}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-8 flex justify-center">
+              <button
+                onClick={handleStart}
+                disabled={disabled || queue.length === 0}
+                className={`
+                  px-8 py-3 rounded-lg font-semibold flex items-center gap-2 transition-all
+                  ${disabled || queue.length === 0
+                    ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg'
+                  }
+                `}
+              >
+                <Play className="w-5 h-5" />
+                Start Session
+              </button>
+            </div>
+
+            {queue.length === 0 && (
+              <p className="text-center text-gray-500 dark:text-gray-400 mt-4">
+                No prospects available. Please add prospects to begin dialing.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Active Session - Orum Style Layout
+  return (
+    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">
+      {/* Top Header */}
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Settings className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            <div className="flex items-center gap-2">
+              <Phone className="w-5 h-5 text-blue-600" />
+              <span className="font-semibold text-gray-900 dark:text-white">Dialer</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <input
+              type="text"
+              placeholder="Search prospects"
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+            />
+            <button className="text-blue-600 hover:text-blue-700 font-medium">Upgrade</button>
+            <Settings className="w-5 h-5 text-gray-600 dark:text-gray-400 cursor-pointer" />
+          </div>
+        </div>
+      </div>
+
+      {/* Secondary Header with List Info and Controls */}
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-gray-900 dark:text-white">San Diego 1.csv</span>
+              <span className="text-gray-500">👥 {queue.length}</span>
+              <span className="text-gray-500">📞 {completedIds.length}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
+              <Phone className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            </button>
+            <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
+              <Mic className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            </button>
+            <button className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
+              <ChevronDown className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            </button>
+            <button
+              onClick={handleEndSession}
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm font-medium"
+            >
+              End Session
+            </button>
+            <button
+              onClick={handlePauseResume}
+              className={`px-4 py-2 rounded-lg font-semibold text-sm flex items-center gap-2 ${
+                effectivePaused
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                  : 'bg-blue-600 text-white hover:bg-blue-700'
+              }`}
+            >
+              {effectivePaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+              {effectivePaused ? 'Resume Dialing' : 'Pause Dialing'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Sidebar - Dialer Options (Always Visible) */}
+        <div className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 overflow-y-auto flex-shrink-0">
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-gray-900 dark:text-white">Dialer options</h3>
+            </div>
+
+            <div className="space-y-4">
+              {/* List */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  List
+                </label>
+                <select className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700">
+                  <option>San Diego 1.csv</option>
+                </select>
+              </div>
+
+              {/* Parallel Dials */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  Parallel dials
+                </label>
+                <select 
+                  value={parallelDials}
+                  onChange={(e) => setParallelDials(Number(e.target.value))}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700"
+                >
+                  <option value={1}>1 (Power dialing)</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3</option>
+                </select>
+              </div>
+
+              {/* Phone Fields */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  Phone fields
+                </label>
+                <select 
+                  value={phoneField}
+                  onChange={(e) => setPhoneField(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700"
+                >
+                  <option value="Phone">Phone</option>
+                  <option value="Mobile Phone">Mobile Phone</option>
+                </select>
+              </div>
+
+              {/* Call From Number */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  Call from number
+                </label>
+                <select className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700">
+                  {twilioNumbers.map((num) => (
+                    <option key={num.sid} value={num.phoneNumber}>
+                      {num.phoneNumber}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Callbacks: Add number</p>
+              </div>
+
+              {/* Voicemail */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  Voicemail
+                </label>
+                <select className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700">
+                  <option>No voicemail</option>
+                  <option>Best voicemail</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Center - Lead List Table (Main Content) */}
+        <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-gray-800">
+          {/* Table Header */}
+          <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2">
+            <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+              <button className="hover:text-gray-900">Sort by: Default (from CRM)</button>
+              <button className="hover:text-gray-900">⚙️ Columns</button>
+              <button className="hover:text-gray-900">🔍 Filter</button>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="flex-1 overflow-y-auto bg-white dark:bg-gray-800">
+            <table className="w-full">
+              <thead className="sticky top-0 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+                <tr className="text-left text-sm font-medium text-gray-600 dark:text-gray-400">
+                  <th className="px-4 py-3 w-8">
+                    <input type="checkbox" className="rounded" />
+                  </th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Name</th>
+                  <th className="px-4 py-3">Phone</th>
+                  <th className="px-4 py-3">Links</th>
+                  <th className="px-4 py-3">Company</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {stableQueue.map((prospect, index) => (
+                  <tr
+                    key={prospect.id}
+                    className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 ${
+                      index === currentIndex ? 'bg-blue-50 dark:bg-blue-900/20' : ''
+                    }`}
+                  >
+                    <td className="px-4 py-3">
+                      <input type="checkbox" className="rounded" />
+                      {index === currentIndex && <ChevronDown className="w-4 h-4 inline ml-1 text-blue-600" />}
+                    </td>
+                    <td className="px-4 py-3">
+                      {getStatusBadge(index)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-gray-900 dark:text-white">
+                        {prospect.firstName} {prospect.lastName}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
+                        <Phone className="w-4 h-4" />
+                        {prospect.phone}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Linkedin className="w-4 h-4 text-blue-600" />
+                    </td>
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
+                      {prospect.company}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Expanded Row - Current Lead Details */}
+            {currentProspect && (
+              <div className="border-t-4 border-blue-500 bg-white dark:bg-gray-800 p-6">
+                <div className="flex items-start gap-6">
+                  <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
+                    <User className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-4">
+                      <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                        {currentProspect.firstName} {currentProspect.lastName}
+                      </h2>
+                      <Linkedin className="w-5 h-5 text-blue-600" />
+                    </div>
+
+                    {/* Tabs */}
+                    <div className="flex gap-4 border-b border-gray-200 dark:border-gray-700 mb-4">
+                      <button
+                        onClick={() => setActiveTab('details')}
+                        className={`pb-2 px-1 font-medium ${
+                          activeTab === 'details'
+                            ? 'border-b-2 border-blue-600 text-blue-600'
+                            : 'text-gray-600 dark:text-gray-400'
+                        }`}
+                      >
+                        Details
+                      </button>
+                      <button
+                        onClick={() => setActiveTab('history')}
+                        className={`pb-2 px-1 font-medium ${
+                          activeTab === 'history'
+                            ? 'border-b-2 border-blue-600 text-blue-600'
+                            : 'text-gray-600 dark:text-gray-400'
+                        }`}
+                      >
+                        Account history
+                      </button>
+                    </div>
+
+                    {/* Details Content */}
+                    {activeTab === 'details' && (
+                      <div className="grid grid-cols-2 gap-6">
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Phone numbers</h4>
+                          <p className="text-gray-900 dark:text-white flex items-center gap-2">
+                            <Phone className="w-4 h-4" />
+                            Phone: {currentProspect.phone}
+                          </p>
+                        </div>
+
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Last Name</h4>
+                          <p className="text-gray-900 dark:text-white">{currentProspect.lastName}</p>
+                        </div>
+
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Name</h4>
+                          <p className="text-gray-900 dark:text-white">
+                            {currentProspect.firstName} {currentProspect.lastName}
+                          </p>
+                        </div>
+
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Phone</h4>
+                          <p className="text-gray-900 dark:text-white">{currentProspect.phone}</p>
+                        </div>
+
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">First Name</h4>
+                          <p className="text-gray-900 dark:text-white">{currentProspect.firstName}</p>
+                        </div>
+
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Company</h4>
+                          <p className="text-gray-900 dark:text-white">{currentProspect.company}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {activeTab === 'history' && (
+                      <div className="text-gray-600 dark:text-gray-400">
+                        No account history available
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Sidebar - Log Call */}
+        <div className="w-80 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex flex-col flex-shrink-0">
+          <div className="p-6 flex-1">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6">Log call</h3>
+
+            {/* Disposition */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Disposition
+              </label>
+              <select
+                value={disposition}
+                onChange={(e) => setDisposition(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              >
+                <option>No Answer</option>
+                <option>Voicemail</option>
+                <option>Wrong Number</option>
+                <option>Connected</option>
+                <option>Not Interested</option>
+                <option>Callback</option>
+                <option>Meeting Set</option>
+              </select>
+            </div>
+
+            {/* Note */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Note
+              </label>
+              <textarea
+                value={callNote}
+                onChange={(e) => setCallNote(e.target.value)}
+                rows={6}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white resize-none"
+                placeholder="Add notes..."
+              />
+            </div>
+
+            {/* Buttons */}
+            <div className="space-y-3">
+              <button
+                onClick={handleLogCall}
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 font-medium text-gray-900 dark:text-white"
+              >
+                Log Call
+              </button>
+              <button
+                onClick={handleLogAndDialNext}
+                className="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center justify-center gap-2"
+              >
+                <Phone className="w-4 h-4" />
+                Log & Dial Next
+              </button>
+            </div>
+          </div>
+
+          {/* Next Dial Preview */}
+          {nextProspect && (
+            <div className="border-t border-gray-200 dark:border-gray-700 p-6">
+              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                Next dial
+                <Linkedin className="w-4 h-4 text-blue-600" />
+              </h4>
+              
+              <div className="space-y-2 text-sm">
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400">Name</span>
+                  <p className="text-gray-900 dark:text-white font-medium">
+                    {nextProspect.firstName} {nextProspect.lastName}
+                  </p>
+                </div>
+                
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                    <Phone className="w-3 h-3" /> Other
+                  </span>
+                  <p className="text-gray-900 dark:text-white">{nextProspect.phone}</p>
+                </div>
+                
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400">City</span>
+                  <p className="text-gray-900 dark:text-white">San Diego</p>
+                </div>
+
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400">Note</span>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs">{nextProspect.notes || '-'}</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default PowerDialerOrum;

@@ -115,3 +115,106 @@ exports.getTeamMembers = async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 };
+
+// Register new user
+exports.register = async (req, res) => {
+  try {
+    const { email, password, firstName, lastName, role } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    const user = await authService.createUser(
+      email,
+      firstName || email.split('@')[0],
+      lastName || 'User',
+      role || 'agent',
+      password
+    );
+
+    const token = authService.generateToken(user);
+
+    res.status(201).json({
+      success: true,
+      user,
+      token,
+    });
+  } catch (error) {
+    console.error('Register error:', error);
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// Get all users (Admin only)
+exports.getAllUsers = async (req, res) => {
+  try {
+    const userRole = req.user?.role || req.decoded?.role;
+    if (userRole !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const users = await authService.getAllUsers();
+    res.json(users);
+  } catch (error) {
+    console.error('Get all users error:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Get user by ID (Admin only)
+exports.getUserById = async (req, res) => {
+  try {
+    const userRole = req.user?.role || req.decoded?.role;
+    if (userRole !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const user = await authService.getUser(req.params.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(user);
+  } catch (error) {
+    console.error('Get user error:', error);
+    res.status(404).json({ error: error.message });
+  }
+};
+
+// Update user (Admin only)
+exports.updateUser = async (req, res) => {
+  try {
+    const userRole = req.user?.role || req.decoded?.role;
+    if (userRole !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const user = await authService.updateUser(req.params.id, req.body);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(user);
+  } catch (error) {
+    console.error('Update user error:', error);
+    res.status(400).json({ error: error.message });
+  }
+};
+
+// Delete user (Admin only)
+exports.deleteUser = async (req, res) => {
+  try {
+    const userRole = req.user?.role || req.decoded?.role;
+    if (userRole !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const success = await authService.deleteUser(req.params.id);
+    if (!success) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json({ success: true, message: 'User deleted' });
+  } catch (error) {
+    console.error('Delete user error:', error);
+    res.status(400).json({ error: error.message });
+  }
+};

@@ -9,30 +9,82 @@ class AuthService {
   /**
    * Create a new user (admin only)
    */
-  async createUser(email, firstName, lastName, role = 'agent') {
+  async createUser(email, firstName, lastName, role = 'agent', password = null) {
     // Check if user already exists
     const existingUser = Array.from(users.values()).find(u => u.email === email);
     if (existingUser) {
       throw new Error('User already exists with this email');
     }
 
-    // Create new user with auto-generated password
+    // Create new user
     const userId = uuidv4();
-    const password = email.split('@')[0] + '123'; // Default password: part_of_email+123
+    const userPassword = password || (email.split('@')[0] + '123'); // Default password: part_of_email+123
     const user = {
       id: userId,
       email,
       firstName,
       lastName,
-      password,
+      password: userPassword,
       role: role || 'agent',
       createdAt: new Date().toISOString(),
     };
 
     users.set(userId, user);
-    console.log(`User created by admin: ${email} (password: ${password})`);
+    console.log(`User created: ${email}`);
 
     return this._sanitizeUser(user);
+  }
+
+  /**
+   * Generate JWT token for a user
+   */
+  generateToken(user) {
+    return jwt.sign(
+      { userId: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: TOKEN_EXPIRY }
+    );
+  }
+
+  /**
+   * Get all users
+   */
+  async getAllUsers() {
+    return Array.from(users.values()).map(u => this._sanitizeUser(u));
+  }
+
+  /**
+   * Update user by ID
+   */
+  async updateUser(userId, updates) {
+    const user = users.get(userId);
+    if (!user) {
+      return null;
+    }
+
+    // Update allowed fields
+    if (updates.firstName) user.firstName = updates.firstName;
+    if (updates.lastName) user.lastName = updates.lastName;
+    if (updates.email) user.email = updates.email;
+    if (updates.role) user.role = updates.role;
+    if (updates.password) user.password = updates.password;
+    if (updates.bio !== undefined) user.bio = updates.bio;
+    if (updates.profilePicture !== undefined) user.profilePicture = updates.profilePicture;
+    user.updatedAt = new Date().toISOString();
+
+    users.set(userId, user);
+    return this._sanitizeUser(user);
+  }
+
+  /**
+   * Delete user by ID
+   */
+  async deleteUser(userId) {
+    if (!users.has(userId)) {
+      return false;
+    }
+    users.delete(userId);
+    return true;
   }
 
   /**

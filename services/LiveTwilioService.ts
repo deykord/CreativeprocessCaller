@@ -1,6 +1,16 @@
 
 import { Device, Call } from '@twilio/voice-sdk';
-import { CallState, TwilioPhoneNumber } from '../types';
+import { CallState, TwilioPhoneNumber, CallEndReason, TwilioCallStatus } from '../types';
+
+// Extended call state info with end reason tracking
+export interface CallStateInfo {
+  state: CallState;
+  callSid?: string;
+  duration?: number;
+  endReason?: CallEndReason;
+  answeredBy?: 'human' | 'machine' | 'unknown';
+  disconnectedBy?: 'local' | 'remote';
+}
 
 /**
  * Real implementation using @twilio/voice-sdk
@@ -9,16 +19,33 @@ import { CallState, TwilioPhoneNumber } from '../types';
 class LiveTwilioService {
   private device: Device | null = null;
   private currentCall: Call | null = null;
-  private statusCallback: ((state: CallState) => void) | null = null;
+  private statusCallback: ((stateInfo: CallStateInfo) => void) | null = null;
   private tokenRefreshInterval: NodeJS.Timeout | null = null;
   private getTokenCallback: (() => Promise<string>) | null = null;
+  private currentCallSid: string | null = null;
+  private callStartTime: Date | null = null;
+  private localDisconnect: boolean = false; // Track if we initiated the disconnect
 
-  registerStatusCallback(cb: (state: CallState) => void) {
+  registerStatusCallback(cb: (stateInfo: CallStateInfo) => void) {
     this.statusCallback = cb;
+  }
+
+  // Legacy support - wrap to new format
+  registerStatusCallbackLegacy(cb: (state: CallState) => void) {
+    this.statusCallback = (info: CallStateInfo) => cb(info.state);
   }
 
   registerTokenRefresh(getToken: () => Promise<string>) {
     this.getTokenCallback = getToken;
+  }
+
+  getCurrentCallSid(): string | null {
+    return this.currentCallSid;
+  }
+
+  getCallDuration(): number {
+    if (!this.callStartTime) return 0;
+    return Math.floor((Date.now() - this.callStartTime.getTime()) / 1000);
   }
 
   private async refreshToken() {
@@ -29,6 +56,17 @@ class LiveTwilioService {
       console.log('Twilio token refreshed successfully');
     } catch (err) {
       console.error('Failed to refresh Twilio token:', err);
+    }
+  }
+
+  private emitStatus(state: CallState, extras: Partial<CallStateInfo> = {}) {
+    if (this.statusCallback) {
+      this.statusCallback({
+        state,
+        callSid: this.currentCallSid || undefined,
+        duration: this.getCallDuration(),
+        ...extras
+      });
     }
   }
 
@@ -89,7 +127,9 @@ class LiveTwilioService {
   async connect(phoneNumber: string, fromNumber?: string) {
     if (!this.device) throw new Error("Device not initialized");
 
-    if (this.statusCallback) this.statusCallback(CallState.DIALING);
+    this.localDisconnect = false;
+    this.callStartTime = null;
+    this.emitStatus(CallState.DIALING);
 
     const params: any = { To: phoneNumber };
     if (fromNumber) params.callerId = fromNumber;
@@ -97,28 +137,88 @@ class LiveTwilioService {
     try {
       const call = await this.device.connect({ params });
       this.currentCall = call;
+      // The callSid is available on the call object after connection
+      this.currentCallSid = (call as any).parameters?.CallSid || null;
       this.setupCallListeners(call);
       return call;
     } catch (err) {
       console.error("Connection failed", err);
-      if (this.statusCallback) this.statusCallback(CallState.WRAP_UP); // Or error state
+      this.emitStatus(CallState.WRAP_UP, { endReason: CallEndReason.FAILED });
       throw err;
     }
   }
 
   private setupCallListeners(call: Call) {
+    // Called when the call is accepted/answered
     call.on('accept', () => {
-      if (this.statusCallback) this.statusCallback(CallState.CONNECTED);
+      this.callStartTime = new Date();
+      // Get CallSid when call is accepted
+      this.currentCallSid = (call as any).parameters?.CallSid || this.currentCallSid;
+      this.emitStatus(CallState.CONNECTED);
     });
 
-    call.on('disconnect', () => {
-      if (this.statusCallback) this.statusCallback(CallState.WRAP_UP);
+    // Called when the call is ringing
+    call.on('ringing', (hasEarlyMedia: boolean) => {
+      console.log('Call is ringing, hasEarlyMedia:', hasEarlyMedia);
+      this.emitStatus(CallState.RINGING);
+    });
+
+    // Called when the call is disconnected
+    call.on('disconnect', (call: Call) => {
+      console.log('Call disconnected');
+      
+      // Determine who hung up based on our local tracking
+      const endReason = this.localDisconnect 
+        ? CallEndReason.AGENT_HANGUP 
+        : CallEndReason.CUSTOMER_HANGUP;
+      
+      this.emitStatus(CallState.WRAP_UP, { 
+        endReason,
+        disconnectedBy: this.localDisconnect ? 'local' : 'remote',
+        duration: this.getCallDuration()
+      });
+      
       this.currentCall = null;
+      this.currentCallSid = null;
+      this.callStartTime = null;
+      this.localDisconnect = false;
     });
 
-    call.on('error', (err) => {
+    // Called when there's a call error
+    call.on('error', (err: any) => {
       console.error("Call error", err);
-      if (this.statusCallback) this.statusCallback(CallState.WRAP_UP);
+      
+      // Map error codes to end reasons
+      let endReason = CallEndReason.FAILED;
+      if (err.code === 31002) endReason = CallEndReason.INVALID_NUMBER;
+      else if (err.code === 31005) endReason = CallEndReason.BUSY;
+      else if (err.code === 31486) endReason = CallEndReason.BUSY;
+      else if (err.code === 31480) endReason = CallEndReason.NO_ANSWER;
+      else if (err.code === 31603) endReason = CallEndReason.CALL_REJECTED;
+      
+      this.emitStatus(CallState.WRAP_UP, { endReason });
+    });
+
+    // Called when call is rejected
+    call.on('reject', () => {
+      console.log('Call rejected');
+      this.emitStatus(CallState.WRAP_UP, { endReason: CallEndReason.CALL_REJECTED });
+      this.currentCall = null;
+      this.currentCallSid = null;
+    });
+
+    // Called when call is canceled
+    call.on('cancel', () => {
+      console.log('Call canceled');
+      this.emitStatus(CallState.WRAP_UP, { endReason: CallEndReason.CANCELED });
+      this.currentCall = null;
+      this.currentCallSid = null;
+    });
+
+    // Called when answering machine is detected
+    call.on('messageReceived', (message: any) => {
+      console.log('Message received:', message);
+      // AMD detection might come through here
     });
   }
 
@@ -127,6 +227,10 @@ class LiveTwilioService {
       clearInterval(this.tokenRefreshInterval);
       this.tokenRefreshInterval = null;
     }
+    
+    // Mark that we initiated the disconnect
+    this.localDisconnect = true;
+    
     if (this.currentCall) {
       this.currentCall.disconnect();
     } else if (this.device) {

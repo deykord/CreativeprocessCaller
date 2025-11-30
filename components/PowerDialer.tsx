@@ -1,12 +1,17 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Prospect } from '../types';
-import { Play, SkipForward, Phone, Pause, CheckCircle, User, Building, ChevronRight, X } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Prospect, CallEndReason, TwilioCallStatus } from '../types';
+import { 
+  Play, Pause, Phone, User, ChevronDown, ChevronLeft, ChevronRight,
+  Mic, Volume2, Settings, Linkedin, AlertCircle, Check, PhoneOff, X, History,
+  PhoneMissed, PhoneIncoming, PhoneOutgoing, Voicemail, UserX, Clock
+} from 'lucide-react';
 import { backendAPI } from '../services/BackendAPI';
+import ActivityLog from './ActivityLog';
+import PhoneCallHistory from './PhoneCallHistory';
 
 declare global {
   interface Window {
     __powerDialerAdvanceToNext?: () => void;
-    __powerDialerSetDispositionSaved?: (v: boolean) => void;
   }
 }
 
@@ -14,7 +19,6 @@ interface Props {
   queue: Prospect[];
   onCall: (prospect: Prospect) => void;
   disabled?: boolean;
-  onAdvanceToNext?: () => void;
   dispositionSaved?: boolean;
   setDispositionSaved?: (v: boolean) => void;
   onDeleteProspect?: (id: string) => void;
@@ -23,133 +27,500 @@ interface Props {
   setPowerDialerPaused?: (v: boolean) => void;
 }
 
-const PowerDialer: React.FC<Props> = React.memo(({ 
-  queue, 
-  onCall, 
-  disabled = false, 
-  onAdvanceToNext, 
-  dispositionSaved, 
-  setDispositionSaved, 
-  onDeleteProspect, 
-  onUpdateProspect, 
-  powerDialerPaused, 
-  setPowerDialerPaused 
+const PowerDialer: React.FC<Props> = ({
+  queue,
+  onCall,
+  disabled = false,
+  dispositionSaved,
+  setDispositionSaved,
+  onDeleteProspect,
+  onUpdateProspect,
+  powerDialerPaused,
+  setPowerDialerPaused
 }) => {
+  // Session States
   const [isActive, setIsActive] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const effectivePaused = isPaused || Boolean(powerDialerPaused);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [completedIds, setCompletedIds] = useState<string[]>([]);
-  const [showLeadModal, setShowLeadModal] = useState(false);
-  const [modalProspect, setModalProspect] = useState<Prospect | null>(null);
-  const [editMode, setEditMode] = useState(false);
-  const [editProspect, setEditProspect] = useState<Prospect | null>(null);
-  const [user, setUser] = useState<{ role?: string } | null>(null);
-  const isAdvancingRef = React.useRef(false);
+  const [callDispositions, setCallDispositions] = useState<Record<string, string>>({});
+  const [stableQueue, setStableQueue] = useState<Prospect[]>([]);
+  const [callTimer, setCallTimer] = useState(0);
+  const [callStatus, setCallStatus] = useState<'idle' | 'dialing' | 'queued' | 'ringing' | 'in-progress' | 'connected' | 'completed' | 'busy' | 'no-answer' | 'failed' | 'canceled' | 'ended'>('idle');
   
-  // CRITICAL: Use refs for stable queue to avoid stale closure issues
+  // Real-time Twilio call tracking
+  const [currentCallSid, setCurrentCallSid] = useState<string | null>(null);
+  const [callEndReason, setCallEndReason] = useState<CallEndReason | null>(null);
+  const [twilioCallStatus, setTwilioCallStatus] = useState<TwilioCallStatus | null>(null);
+  const callStatusPollRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // UI States
+  const [activeTab, setActiveTab] = useState<'details' | 'history'>('details');
+  const [sortBy, setSortBy] = useState('default');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  
+  // Phone Call History Modal
+  const [phoneHistoryModal, setPhoneHistoryModal] = useState<{
+    isOpen: boolean;
+    prospectId: string;
+    prospectName: string;
+    phoneNumber: string;
+  }>({ isOpen: false, prospectId: '', prospectName: '', phoneNumber: '' });
+  
+  // Log Call States
+  type DispositionType = 'No Answer' | 'Connected' | 'Voicemail' | 'Busy' | 'Wrong Number' | 'Meeting Set' | 'Not Interested' | 'Callback';
+  const [selectedDisposition, setSelectedDisposition] = useState<DispositionType>('No Answer');
+  const [callNote, setCallNote] = useState('');
+  
+  // Dialer Options
+  const [parallelDials, setParallelDials] = useState(1);
+  const [callFromNumber, setCallFromNumber] = useState('');
+  const [twilioNumbers, setTwilioNumbers] = useState<Array<{sid: string; phoneNumber: string; friendlyName?: string}>>([]);
+  const [audioDevices, setAudioDevices] = useState<{
+    microphones: MediaDeviceInfo[];
+    speakers: MediaDeviceInfo[];
+  }>({ microphones: [], speakers: [] });
+  const [selectedMicrophone, setSelectedMicrophone] = useState<string>('');
+  const [selectedSpeaker, setSelectedSpeaker] = useState<string>('');
+  const [micMuted, setMicMuted] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  const isAdvancingRef = React.useRef(false);
+  const isCallingRef = React.useRef(false);
   const stableQueueRef = React.useRef<Prospect[]>([]);
   const currentIndexRef = React.useRef(0);
+
+  const effectivePaused = isPaused || Boolean(powerDialerPaused);
   
-  // State for UI updates
-  const [stableQueue, setStableQueue] = useState<Prospect[]>([]);
+  // Apply filtering
+  let filteredQueue = isActive ? stableQueue : queue;
+  if (filterStatus !== 'all') {
+    filteredQueue = filteredQueue.filter(p => p.status === filterStatus);
+  }
+  
+  // Apply sorting
+  let sortedQueue = [...filteredQueue];
+  if (sortBy === 'name') {
+    sortedQueue.sort((a, b) => `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`));
+  } else if (sortBy === 'status') {
+    sortedQueue.sort((a, b) => a.status.localeCompare(b.status));
+  }
+  
+  const activeQueue = sortedQueue;
+  const currentProspect = activeQueue[currentIndex];
+  const nextProspect = activeQueue[currentIndex + 1];
 
-  useEffect(() => {
-    try {
-      const u = localStorage.getItem('user');
-      setUser(u ? JSON.parse(u) : null);
-    } catch {
-      setUser(null);
-    }
-  }, []);
-
-  const progressPercentage = useMemo(() => {
-    const total = stableQueue.length;
-    const completed = completedIds.length;
-    return total > 0 ? (completed / total) * 100 : 0;
-  }, [completedIds.length, stableQueue.length]);
-
-  // Use stableQueue for operations during active session, queue for preview
-  const activeQueue = isActive ? stableQueue : queue;
-
-  // Keep refs in sync with state
   React.useEffect(() => {
     currentIndexRef.current = currentIndex;
   }, [currentIndex]);
 
-  const advanceToNextLead = React.useCallback((shouldCall: boolean = true) => {
-    if (isAdvancingRef.current) {
-      console.log('[PowerDialer] advanceToNextLead blocked - already advancing');
-      return;
-    }
-    isAdvancingRef.current = true;
+  // Call timer effect - only count when connected
+  useEffect(() => {
+    if (!isActive || isPaused || !['in-progress', 'connected'].includes(callStatus)) return;
     
-    // Use refs for stable access
+    const timer = setInterval(() => {
+      setCallTimer(prev => prev + 1);
+    }, 1000);
+    
+    return () => clearInterval(timer);
+  }, [isActive, isPaused, callStatus]);
+
+  // Real-time call status polling from Twilio
+  const pollCallStatus = useCallback(async () => {
+    if (!currentCallSid) return;
+    
+    try {
+      const status = await backendAPI.getCallStatus(currentCallSid);
+      setTwilioCallStatus(status);
+      
+      // Map Twilio status to our call status
+      const statusMap: Record<string, typeof callStatus> = {
+        'queued': 'queued',
+        'ringing': 'ringing',
+        'in-progress': 'in-progress',
+        'completed': 'completed',
+        'busy': 'busy',
+        'no-answer': 'no-answer',
+        'failed': 'failed',
+        'canceled': 'canceled'
+      };
+      
+      const newStatus = statusMap[status.status] || callStatus;
+      setCallStatus(newStatus);
+      
+      // If call ended, set end reason and stop polling
+      if (['completed', 'busy', 'no-answer', 'failed', 'canceled'].includes(status.status)) {
+        setCallEndReason(status.endReason || null);
+        stopCallStatusPolling();
+        
+        // Auto-set disposition based on end reason
+        if (status.endReason) {
+          const reasonToDisposition: Record<string, DispositionType> = {
+            'customer_hangup': 'Connected',
+            'agent_hangup': 'Connected',
+            'voicemail': 'Voicemail',
+            'machine_detected': 'Voicemail',
+            'no_answer': 'No Answer',
+            'busy': 'Busy',
+            'call_rejected': 'No Answer',
+            'invalid_number': 'Wrong Number',
+          };
+          const autoDisp = reasonToDisposition[status.endReason];
+          if (autoDisp) setSelectedDisposition(autoDisp);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch call status:', error);
+    }
+  }, [currentCallSid, callStatus]);
+
+  const startCallStatusPolling = useCallback((callSid: string) => {
+    setCurrentCallSid(callSid);
+    setCallEndReason(null);
+    
+    // Poll every 1 second for real-time updates
+    callStatusPollRef.current = setInterval(() => {
+      pollCallStatus();
+    }, 1000);
+    
+    // Also poll immediately
+    pollCallStatus();
+  }, [pollCallStatus]);
+
+  const stopCallStatusPolling = useCallback(() => {
+    if (callStatusPollRef.current) {
+      clearInterval(callStatusPollRef.current);
+      callStatusPollRef.current = null;
+    }
+  }, []);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      stopCallStatusPolling();
+    };
+  }, [stopCallStatusPolling]);
+
+  // Fallback: Simulate call status progression if no real callSid
+  useEffect(() => {
+    if (!isActive || isPaused || currentCallSid) return; // Skip if we have real tracking
+    
+    const dialingTimer = setTimeout(() => setCallStatus('ringing'), 2000);
+    const ringingTimer = setTimeout(() => setCallStatus('in-progress'), 5000);
+    
+    return () => {
+      clearTimeout(dialingTimer);
+      clearTimeout(ringingTimer);
+    };
+  }, [isActive, isPaused, currentIndex, currentCallSid]);
+
+  const formatCallTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Get human-readable call end reason
+  const getEndReasonDisplay = (reason: CallEndReason | null): { text: string; icon: React.ReactNode; color: string } => {
+    if (!reason) return { text: '', icon: null, color: '' };
+    
+    const reasons: Record<CallEndReason, { text: string; icon: React.ReactNode; color: string }> = {
+      [CallEndReason.CUSTOMER_HANGUP]: { 
+        text: 'Customer hung up', 
+        icon: <PhoneMissed className="w-4 h-4" />,
+        color: 'text-orange-600 bg-orange-100 dark:bg-orange-900/30'
+      },
+      [CallEndReason.AGENT_HANGUP]: { 
+        text: 'You ended the call', 
+        icon: <PhoneOff className="w-4 h-4" />,
+        color: 'text-blue-600 bg-blue-100 dark:bg-blue-900/30'
+      },
+      [CallEndReason.VOICEMAIL]: { 
+        text: 'Went to voicemail', 
+        icon: <Voicemail className="w-4 h-4" />,
+        color: 'text-purple-600 bg-purple-100 dark:bg-purple-900/30'
+      },
+      [CallEndReason.NO_ANSWER]: { 
+        text: 'No answer', 
+        icon: <Clock className="w-4 h-4" />,
+        color: 'text-gray-600 bg-gray-100 dark:bg-gray-700'
+      },
+      [CallEndReason.BUSY]: { 
+        text: 'Line busy', 
+        icon: <Phone className="w-4 h-4" />,
+        color: 'text-red-600 bg-red-100 dark:bg-red-900/30'
+      },
+      [CallEndReason.FAILED]: { 
+        text: 'Call failed', 
+        icon: <AlertCircle className="w-4 h-4" />,
+        color: 'text-red-600 bg-red-100 dark:bg-red-900/30'
+      },
+      [CallEndReason.CANCELED]: { 
+        text: 'Call canceled', 
+        icon: <X className="w-4 h-4" />,
+        color: 'text-gray-600 bg-gray-100 dark:bg-gray-700'
+      },
+      [CallEndReason.MACHINE_DETECTED]: { 
+        text: 'Answering machine', 
+        icon: <Voicemail className="w-4 h-4" />,
+        color: 'text-purple-600 bg-purple-100 dark:bg-purple-900/30'
+      },
+      [CallEndReason.CALL_REJECTED]: { 
+        text: 'Call rejected', 
+        icon: <UserX className="w-4 h-4" />,
+        color: 'text-red-600 bg-red-100 dark:bg-red-900/30'
+      },
+      [CallEndReason.INVALID_NUMBER]: { 
+        text: 'Invalid number', 
+        icon: <AlertCircle className="w-4 h-4" />,
+        color: 'text-red-600 bg-red-100 dark:bg-red-900/30'
+      },
+      [CallEndReason.NETWORK_ERROR]: { 
+        text: 'Network error', 
+        icon: <AlertCircle className="w-4 h-4" />,
+        color: 'text-red-600 bg-red-100 dark:bg-red-900/30'
+      },
+      [CallEndReason.TIMEOUT]: { 
+        text: 'Call timed out', 
+        icon: <Clock className="w-4 h-4" />,
+        color: 'text-gray-600 bg-gray-100 dark:bg-gray-700'
+      },
+      [CallEndReason.UNKNOWN]: { 
+        text: 'Call ended', 
+        icon: <PhoneOff className="w-4 h-4" />,
+        color: 'text-gray-600 bg-gray-100 dark:bg-gray-700'
+      },
+    };
+    
+    return reasons[reason] || { text: 'Call ended', icon: <PhoneOff className="w-4 h-4" />, color: 'text-gray-600 bg-gray-100' };
+  };
+
+  // Get call status display info
+  const getCallStatusDisplay = () => {
+    const isCallEnded = ['completed', 'busy', 'no-answer', 'failed', 'canceled', 'ended'].includes(callStatus);
+    
+    if (isCallEnded && callEndReason) {
+      const endInfo = getEndReasonDisplay(callEndReason);
+      return {
+        text: endInfo.text,
+        icon: endInfo.icon,
+        className: endInfo.color,
+        showTimer: callTimer > 0
+      };
+    }
+    
+    switch (callStatus) {
+      case 'idle':
+        return { text: 'Ready', icon: <Phone className="w-3 h-3" />, className: 'bg-gray-100 text-gray-700', showTimer: false };
+      case 'dialing':
+      case 'queued':
+        return { text: 'Dialing...', icon: <PhoneOutgoing className="w-3 h-3 animate-pulse" />, className: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-400', showTimer: false };
+      case 'ringing':
+        return { text: 'Ringing...', icon: <PhoneIncoming className="w-3 h-3 animate-bounce" />, className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400', showTimer: false };
+      case 'in-progress':
+      case 'connected':
+        return { text: `Connected: ${formatCallTime(callTimer)}`, icon: <Phone className="w-3 h-3" />, className: 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400', showTimer: true };
+      case 'ended':
+      case 'completed':
+        return { text: 'Call Ended', icon: <PhoneOff className="w-3 h-3" />, className: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300', showTimer: callTimer > 0 };
+      default:
+        return { text: callStatus, icon: <Phone className="w-3 h-3" />, className: 'bg-gray-100 text-gray-700', showTimer: false };
+    }
+  };
+
+  // Log Call - just log without advancing
+  const handleLogCall = async () => {
+    if (!currentProspect) return;
+
+    setCallDispositions(prev => ({ ...prev, [currentProspect.id]: selectedDisposition }));
+    setCallStatus('ended');
+    stopCallStatusPolling();
+    
+    try {
+      await backendAPI.logCall({
+        prospectName: `${currentProspect.firstName} ${currentProspect.lastName}`,
+        phoneNumber: currentProspect.phone,
+        duration: callTimer,
+        outcome: selectedDisposition,
+        note: callNote,
+        fromNumber: callFromNumber,
+        timestamp: new Date().toISOString(),
+        prospectId: currentProspect.id,
+        endReason: callEndReason || undefined,
+        callSid: currentCallSid || undefined
+      });
+    } catch (error) {
+      console.error('Failed to log call:', error);
+    }
+
+    // Reset call tracking state
+    setCurrentCallSid(null);
+    setCallEndReason(null);
+    setTwilioCallStatus(null);
+    setCallNote('');
+  };
+
+  // Log & Dial Next
+  const handleLogAndDialNext = async () => {
+    await handleLogCall();
+    
+    setTimeout(() => {
+      advanceToNextLead();
+    }, 300);
+  };
+
+  // Disconnect current call - logs the call and updates status
+  const handleDisconnect = async () => {
+    if (!currentProspect) return;
+    
+    // If we have a real call SID, end it via API
+    if (currentCallSid) {
+      try {
+        const result = await backendAPI.endCall(currentCallSid);
+        setCallEndReason(result.endReason as CallEndReason);
+        console.log('Call ended via API:', result);
+      } catch (error) {
+        console.error('Failed to end call via API:', error);
+      }
+    }
+    
+    setCallStatus('ended');
+    stopCallStatusPolling();
+    
+    // Log the call with current disposition and end reason
+    try {
+      await backendAPI.logCall({
+        prospectName: `${currentProspect.firstName} ${currentProspect.lastName}`,
+        phoneNumber: currentProspect.phone,
+        duration: callTimer,
+        outcome: selectedDisposition,
+        note: callNote,
+        fromNumber: callFromNumber,
+        timestamp: new Date().toISOString(),
+        prospectId: currentProspect.id,
+        endReason: CallEndReason.AGENT_HANGUP,
+        callSid: currentCallSid || undefined
+      });
+      
+      // Update prospect status to Contacted
+      await backendAPI.updateProspect(currentProspect.id, { status: 'Contacted' });
+      
+      // Update local state
+      setCallDispositions(prev => ({ ...prev, [currentProspect.id]: selectedDisposition }));
+    } catch (error) {
+      console.error('Failed to log call on disconnect:', error);
+    }
+    
+    // Reset call tracking state
+    setCurrentCallSid(null);
+    setCallEndReason(null);
+    setTwilioCallStatus(null);
+  };
+
+  useEffect(() => {
+    const loadTwilioNumbers = async () => {
+      try {
+        const numbers = await backendAPI.getTwilioNumbers();
+        setTwilioNumbers(numbers);
+        if (numbers.length > 0 && !callFromNumber) {
+          setCallFromNumber(numbers[0].phoneNumber);
+        }
+      } catch (error) {
+        console.error('Failed to load Twilio numbers:', error);
+      }
+    };
+    loadTwilioNumbers();
+  }, []);
+
+  useEffect(() => {
+    const loadAudioDevices = async () => {
+      try {
+        await navigator.mediaDevices.getUserMedia({ audio: true });
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const microphones = devices.filter(d => d.kind === 'audioinput');
+        const speakers = devices.filter(d => d.kind === 'audiooutput');
+        
+        setAudioDevices({ microphones, speakers });
+        
+        if (microphones.length > 0 && !selectedMicrophone) {
+          setSelectedMicrophone(microphones[0].deviceId);
+        }
+        if (speakers.length > 0 && !selectedSpeaker) {
+          setSelectedSpeaker(speakers[0].deviceId);
+        }
+      } catch (error) {
+        console.error('Failed to load audio devices:', error);
+      }
+    };
+
+    loadAudioDevices();
+  }, []);
+
+  const advanceToNextLead = useCallback((shouldCall: boolean = true) => {
+    if (isAdvancingRef.current || isCallingRef.current) return;
+    isAdvancingRef.current = true;
+
     const currentQueue = stableQueueRef.current;
     const prevIndex = currentIndexRef.current;
-    
-    console.log('[PowerDialer] advanceToNextLead called', { 
-      shouldCall, 
-      currentIndex: prevIndex, 
-      queueLength: currentQueue.length 
-    });
-    
+
     if (!currentQueue.length) {
-      console.log('[PowerDialer] Empty queue, aborting advance');
       isAdvancingRef.current = false;
       return;
     }
-    
-    // Mark current as completed
+
     const prospectId = currentQueue[prevIndex]?.id;
     if (prospectId) {
-      setCompletedIds(ids => {
-        if (ids.includes(prospectId)) return ids;
-        return [...ids, prospectId];
-      });
+      setCompletedIds(ids => ids.includes(prospectId) ? ids : [...ids, prospectId]);
     }
-    
-    // Move to next
+
     if (prevIndex < currentQueue.length - 1) {
       const nextIndex = prevIndex + 1;
       currentIndexRef.current = nextIndex;
       setCurrentIndex(nextIndex);
+      setCallTimer(0);
+      setCallStatus('dialing');
+      setSelectedDisposition('No Answer');
       
-      // Call next prospect
+      // Reset call tracking for new call
+      stopCallStatusPolling();
+      setCurrentCallSid(null);
+      setCallEndReason(null);
+      setTwilioCallStatus(null);
+
       const nextProspect = currentQueue[nextIndex];
       if (shouldCall && nextProspect) {
-        console.log('[PowerDialer] Calling next prospect:', nextProspect.firstName, nextProspect.lastName);
+        isCallingRef.current = true;
         setTimeout(() => {
-          onCall(nextProspect);
+          if (!effectivePaused) {
+            onCall(nextProspect);
+          }
+          isCallingRef.current = false;
           isAdvancingRef.current = false;
-        }, 100);
+        }, 500);
       } else {
         isAdvancingRef.current = false;
       }
     } else {
-      // Reached the end
-      console.log('[PowerDialer] Reached end of queue');
-      setIsActive(false);
       isAdvancingRef.current = false;
     }
-  }, [onCall]);
+  }, [onCall, effectivePaused, stopCallStatusPolling]);
 
   useEffect(() => {
     window.__powerDialerAdvanceToNext = advanceToNextLead;
-    return () => { if (window.__powerDialerAdvanceToNext) delete window.__powerDialerAdvanceToNext; };
+    return () => {
+      if (window.__powerDialerAdvanceToNext) delete window.__powerDialerAdvanceToNext;
+    };
   }, [advanceToNextLead]);
 
   useEffect(() => {
-    const externallyPaused = Boolean(powerDialerPaused);
-    if (dispositionSaved && isActive && !isPaused && !externallyPaused) {
+    if (dispositionSaved && isActive && !isPaused && !powerDialerPaused) {
       advanceToNextLead(true);
       if (setDispositionSaved) setDispositionSaved(false);
     }
   }, [dispositionSaved, isActive, isPaused, powerDialerPaused, advanceToNextLead, setDispositionSaved]);
 
-  const handleStart = useCallback(() => {
-    // CRITICAL: Snapshot the queue at start time so indices remain stable
-    // even when prospects update their status (New -> Contacted)
+  const handleStart = () => {
     const snapshot = [...queue];
     stableQueueRef.current = snapshot;
     currentIndexRef.current = 0;
@@ -158,13 +529,25 @@ const PowerDialer: React.FC<Props> = React.memo(({
     setIsPaused(false);
     setCurrentIndex(0);
     setCompletedIds([]);
+    setCallTimer(0);
+    setCallStatus('dialing');
+    setSelectedDisposition('No Answer');
+    setCallNote('');
     
-    console.log('[PowerDialer] Started with queue:', snapshot.length, 'leads');
-    
+    // Reset call tracking
+    stopCallStatusPolling();
+    setCurrentCallSid(null);
+    setCallEndReason(null);
+    setTwilioCallStatus(null);
+
     if (snapshot.length > 0) {
+      isCallingRef.current = true;
       onCall(snapshot[0]);
+      setTimeout(() => {
+        isCallingRef.current = false;
+      }, 2000);
     }
-  }, [queue, onCall]);
+  };
 
   const handlePauseResume = useCallback(() => {
     setIsPaused(prev => !prev);
@@ -173,345 +556,621 @@ const PowerDialer: React.FC<Props> = React.memo(({
     }
   }, [effectivePaused, setPowerDialerPaused]);
 
-  const handleSkip = useCallback(() => {
-    advanceToNextLead(true);
-  }, [advanceToNextLead]);
-
-  const handleStop = useCallback(() => {
+  const handleEndSession = () => {
+    // Stop any active call polling
+    stopCallStatusPolling();
+    
     setIsActive(false);
     setIsPaused(false);
     setCurrentIndex(0);
     setStableQueue([]);
+    setCompletedIds([]);
+    setCallDispositions({});
+    setSelectedIds([]);
+    setCallTimer(0);
+    setCallStatus('idle');
+    setCallNote('');
+    
+    // Reset call tracking
+    setCurrentCallSid(null);
+    setCallEndReason(null);
+    setTwilioCallStatus(null);
+    
     stableQueueRef.current = [];
     currentIndexRef.current = 0;
-  }, []);
+  };
 
-  const currentProspect = activeQueue[currentIndex];
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedIds(activeQueue.map(p => p.id));
+    } else {
+      setSelectedIds([]);
+    }
+  };
 
+  const handleSelectOne = (id: string, checked: boolean) => {
+    if (checked) {
+      setSelectedIds([...selectedIds, id]);
+    } else {
+      setSelectedIds(selectedIds.filter(i => i !== id));
+    }
+  };
+
+  const getStatusBadge = (prospect: Prospect, idx: number) => {
+    if (idx === currentIndex && isActive) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+          <Phone className="w-3 h-3" />
+          Connected: {formatCallTime(callTimer)}
+        </span>
+      );
+    }
+
+    if (completedIds.includes(prospect.id)) {
+      const disp = callDispositions[prospect.id] || 'Ended';
+      const styles: Record<string, string> = {
+        'Voicemail': 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+        'No Answer': 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
+        'Connected': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+        'Busy': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+        'Meeting Set': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+      };
+      return (
+        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${styles[disp] || styles['No Answer']}`}>
+          {disp}
+        </span>
+      );
+    }
+
+    return null;
+  };
+
+  // Orum-style Layout
   return (
-    <div className="h-full">
-      {!isActive ? (
-        /* Start Screen */
-        <div className="flex flex-col items-center justify-center h-full min-h-[500px] bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-8">
-          <div className="text-center mb-8">
-            <div className="w-20 h-20 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-lg shadow-blue-600/30">
-              <Phone size={40} className="text-white" />
+    <div className="flex h-full bg-white dark:bg-gray-900">
+      {/* Left Sidebar - Dialer Options */}
+      {!sidebarCollapsed && (
+        <div className="w-56 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col flex-shrink-0">
+          <div className="p-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Dialer options</h3>
+            <button 
+              onClick={() => setSidebarCollapsed(true)}
+              className="text-gray-400 hover:text-gray-600 p-1"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-3 space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">List</label>
+              <select className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-white">
+                <option>San Diego 1.csv</option>
+              </select>
+              <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                <User className="w-3 h-3" /> Don Vee
+              </p>
             </div>
-            <h2 className="text-3xl font-bold text-white mb-2">Power Dialer</h2>
-            <p className="text-slate-400 text-lg">
-              {queue.length} leads ready to call
-            </p>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Parallel dials</label>
+              <select
+                value={parallelDials}
+                onChange={(e) => setParallelDials(Number(e.target.value))}
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-white"
+              >
+                <option value={1}>1 (Power dialing)</option>
+                <option value={2}>2</option>
+                <option value={3}>3</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Phone fields</label>
+              <select className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-white">
+                <option>Phone</option>
+                <option>Mobile Phone</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Call from number</label>
+              <select
+                value={callFromNumber}
+                onChange={(e) => setCallFromNumber(e.target.value)}
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-white"
+              >
+                {twilioNumbers.map((num) => (
+                  <option key={num.sid} value={num.phoneNumber}>{num.phoneNumber}</option>
+                ))}
+              </select>
+              <p className="text-xs text-blue-600 mt-1 cursor-pointer hover:underline">Callbacks: Add number</p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Voicemail</label>
+              <select className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-white">
+                <option>No voicemail</option>
+                <option>Best voicemail</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {sidebarCollapsed && (
+        <button 
+          onClick={() => setSidebarCollapsed(false)}
+          className="w-8 bg-gray-100 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-gray-700"
+        >
+          <ChevronRight className="w-4 h-4 text-gray-500" />
+        </button>
+      )}
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between bg-white dark:bg-gray-800">
+          <div className="flex items-center gap-4">
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">San Diego 1.csv</h2>
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <span>👥 {queue.length}</span>
+              <span>📞 {completedIds.length}</span>
+            </div>
           </div>
           
-          <button
-            onClick={handleStart}
-            disabled={disabled || queue.length === 0}
-            className={`
-              px-10 py-4 rounded-xl font-semibold text-lg flex items-center gap-3 transition-all
-              ${disabled || queue.length === 0 
-                ? 'bg-slate-700 text-slate-500 cursor-not-allowed' 
-                : 'bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-600/30 hover:shadow-green-500/40'
-              }
-            `}
-          >
-            <Play size={24} />
-            Start Dialing
-          </button>
+          <div className="flex items-center gap-3">
+            {isActive && (
+              <>
+                <button
+                  onClick={() => setMicMuted(!micMuted)}
+                  className={`p-2 rounded ${micMuted ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-600'} hover:bg-gray-200`}
+                  title={micMuted ? 'Unmute' : 'Mute'}
+                >
+                  {micMuted ? <X className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                </button>
+                <select
+                  value={selectedMicrophone}
+                  onChange={(e) => setSelectedMicrophone(e.target.value)}
+                  className="px-2 py-1 text-xs border border-gray-300 rounded bg-white text-gray-700"
+                >
+                  {audioDevices.microphones.map((mic) => (
+                    <option key={mic.deviceId} value={mic.deviceId}>
+                      {mic.label || 'Microphone'}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
 
-          {queue.length > 0 && (
-            <div className="mt-8 w-full max-w-md">
-              <h3 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">
-                Queue Preview
-              </h3>
-              <div className="space-y-2">
-                {queue.slice(0, 3).map((prospect, i) => (
-                  <div key={prospect.id} className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-lg">
-                    <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center text-slate-400">
-                      <User size={16} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white font-medium truncate">{prospect.firstName} {prospect.lastName}</p>
-                      <p className="text-slate-500 text-sm truncate">{prospect.company}</p>
-                    </div>
-                    {i === 0 && (
-                      <span className="text-xs bg-blue-600/20 text-blue-400 px-2 py-1 rounded">First</span>
+            {!isActive ? (
+              <button
+                onClick={handleStart}
+                disabled={disabled || queue.length === 0}
+                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+              >
+                <Play className="w-4 h-4" />
+                Start Session
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={handleEndSession}
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-sm font-medium flex items-center gap-2"
+                >
+                  <PhoneOff className="w-4 h-4" />
+                  End Session
+                </button>
+                <button
+                  onClick={handlePauseResume}
+                  className="px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white rounded-md text-sm font-medium flex items-center gap-2"
+                >
+                  {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                  {isPaused ? 'Resume Dialing' : 'Pause Dialing'}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Table Header Row */}
+        <div className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+          <div className="grid grid-cols-12 gap-2 px-4 py-2 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+            <div className="col-span-1 flex items-center">
+              <input
+                type="checkbox"
+                checked={selectedIds.length === activeQueue.length && activeQueue.length > 0}
+                onChange={(e) => handleSelectAll(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+            </div>
+            <div className="col-span-2">Status</div>
+            <div className="col-span-3">Name</div>
+            <div className="col-span-3">Phone</div>
+            <div className="col-span-1">Links</div>
+            <div className="col-span-2">City</div>
+          </div>
+        </div>
+
+        {/* Active Call Row - Orum Style */}
+        {isActive && currentProspect && (
+          <>
+            <div className={`${['completed', 'busy', 'no-answer', 'failed', 'canceled', 'ended'].includes(callStatus) ? 'bg-gray-50 dark:bg-gray-800/50' : 'bg-green-50 dark:bg-green-900/20'} border-b-2 ${['completed', 'busy', 'no-answer', 'failed', 'canceled', 'ended'].includes(callStatus) ? 'border-gray-200 dark:border-gray-700' : 'border-green-200 dark:border-green-800'}`}>
+              <div className="grid grid-cols-12 gap-2 px-4 py-3 items-center">
+                <div className="col-span-1">
+                  <input type="checkbox" className="rounded border-gray-300" />
+                </div>
+                <div className="col-span-2">
+                  {(() => {
+                    const statusDisplay = getCallStatusDisplay();
+                    return (
+                      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${statusDisplay.className}`}>
+                        {statusDisplay.icon}
+                        {statusDisplay.text}
+                      </span>
+                    );
+                  })()}
+                </div>
+                <div className="col-span-3 text-sm font-medium text-gray-900 dark:text-white">
+                  {currentProspect.firstName} {currentProspect.lastName}
+                </div>
+                <div className="col-span-3 text-sm text-gray-600 dark:text-gray-400 flex items-center gap-2">
+                  <Phone className="w-3.5 h-3.5" />
+                  <button
+                    onClick={() => setPhoneHistoryModal({
+                      isOpen: true,
+                      prospectId: currentProspect.id,
+                      prospectName: `${currentProspect.firstName} ${currentProspect.lastName}`,
+                      phoneNumber: currentProspect.phone
+                    })}
+                    className="text-blue-600 hover:text-blue-800 hover:underline"
+                  >
+                    {currentProspect.phone}
+                  </button>
+                </div>
+                <div className="col-span-1">
+                  <Linkedin className="w-4 h-4 text-blue-600" />
+                </div>
+                <div className="col-span-2 text-sm text-gray-600 dark:text-gray-400">
+                  {currentProspect.timezone?.split('/')[1]?.replace('_', ' ') || 'San Diego'}
+                </div>
+              </div>
+            </div>
+
+            {/* Expanded Active Call Panel */}
+            <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex">
+              {/* Left Panel - Prospect Details */}
+              <div className="flex-1 p-6 border-r border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-12 h-12 bg-cyan-100 dark:bg-cyan-900/30 rounded-full flex items-center justify-center">
+                    <Phone className="w-6 h-6 text-cyan-600 dark:text-cyan-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                      {currentProspect.firstName} {currentProspect.lastName}
+                      <a href="#" className="text-blue-600 hover:text-blue-700">
+                        <Linkedin className="w-5 h-5" />
+                      </a>
+                    </h3>
+                  </div>
+                  <div className="ml-auto flex items-center gap-2">
+                    {/* Real-time call info */}
+                    {twilioCallStatus && currentCallSid && (
+                      <span className="text-xs text-gray-400 mr-2">
+                        SID: ...{currentCallSid.slice(-8)}
+                      </span>
+                    )}
+                    <span className="text-sm text-gray-500">⊙ All</span>
+                    <button className="p-2 hover:bg-gray-100 rounded">
+                      <Settings className="w-4 h-4 text-gray-400" />
+                    </button>
+                    {!['completed', 'busy', 'no-answer', 'failed', 'canceled', 'ended'].includes(callStatus) ? (
+                      <button 
+                        onClick={handleDisconnect}
+                        className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-md text-sm font-medium flex items-center gap-2"
+                      >
+                        <PhoneOff className="w-4 h-4" />
+                        End Call
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        {callEndReason && (
+                          <span className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 ${getEndReasonDisplay(callEndReason).color}`}>
+                            {getEndReasonDisplay(callEndReason).icon}
+                            {getEndReasonDisplay(callEndReason).text}
+                          </span>
+                        )}
+                        {callTimer > 0 && (
+                          <span className="text-sm text-gray-500">
+                            Duration: {formatCallTime(callTimer)}
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
-                ))}
-                {queue.length > 3 && (
-                  <p className="text-slate-500 text-sm text-center">+ {queue.length - 3} more leads</p>
+                </div>
+
+                {/* Tabs */}
+                <div className="flex gap-6 border-b border-gray-200 dark:border-gray-700 mb-4">
+                  <button 
+                    onClick={() => setActiveTab('details')}
+                    className={`pb-3 text-sm font-medium border-b-2 -mb-px ${
+                      activeTab === 'details' 
+                        ? 'border-blue-600 text-blue-600' 
+                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    Details
+                  </button>
+                  <button 
+                    onClick={() => setActiveTab('history')}
+                    className={`pb-3 text-sm font-medium border-b-2 -mb-px ${
+                      activeTab === 'history' 
+                        ? 'border-blue-600 text-blue-600' 
+                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    Account history
+                  </button>
+                </div>
+
+                {activeTab === 'details' && (
+                  <div className="grid grid-cols-2 gap-x-12 gap-y-4">
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Phone numbers</label>
+                        <div className="mt-1 flex items-center gap-2 text-sm">
+                          <Phone className="w-4 h-4 text-gray-400" />
+                          <button
+                            onClick={() => setPhoneHistoryModal({
+                              isOpen: true,
+                              prospectId: currentProspect.id,
+                              prospectName: `${currentProspect.firstName} ${currentProspect.lastName}`,
+                              phoneNumber: currentProspect.phone
+                            })}
+                            className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                          >
+                            {currentProspect.phone}
+                            <History className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-500">Name</label>
+                        <p className="text-sm text-gray-900 dark:text-white">{currentProspect.firstName} {currentProspect.lastName}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-500">First Name</label>
+                        <p className="text-sm text-gray-900 dark:text-white">{currentProspect.firstName}</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-sm text-gray-500">Last Name</label>
+                        <p className="text-sm text-gray-900 dark:text-white">{currentProspect.lastName}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-500">Phone</label>
+                        <button
+                          onClick={() => setPhoneHistoryModal({
+                            isOpen: true,
+                            prospectId: currentProspect.id,
+                            prospectName: `${currentProspect.firstName} ${currentProspect.lastName}`,
+                            phoneNumber: currentProspect.phone
+                          })}
+                          className="text-sm text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                        >
+                          {currentProspect.phone}
+                          <History className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-500">City</label>
+                        <p className="text-sm text-gray-900 dark:text-white">
+                          {currentProspect.timezone?.split('/')[1]?.replace('_', ' ') || 'San Diego'}
+                        </p>
+                      </div>
+                      {currentProspect.company && (
+                        <div>
+                          <label className="text-sm text-gray-500">Company</label>
+                          <p className="text-sm text-gray-900 dark:text-white">{currentProspect.company}</p>
+                        </div>
+                      )}
+                      {currentProspect.title && (
+                        <div>
+                          <label className="text-sm text-gray-500">Title</label>
+                          <p className="text-sm text-gray-900 dark:text-white">{currentProspect.title}</p>
+                        </div>
+                      )}
+                      {currentProspect.email && (
+                        <div>
+                          <label className="text-sm text-gray-500">Email</label>
+                          <p className="text-sm text-gray-900 dark:text-white">{currentProspect.email}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'history' && (
+                  <div className="max-h-96 overflow-y-auto">
+                    <ActivityLog prospectId={currentProspect.id} compact />
+                  </div>
                 )}
               </div>
+
+              {/* Right Panel - Log Call + Next Dial */}
+              <div className="w-80 p-6 bg-gray-50 dark:bg-gray-800/50">
+                <div className="mb-6">
+                  <h4 className="text-base font-semibold text-gray-900 dark:text-white mb-4">Log call</h4>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Disposition</label>
+                      <select
+                        value={selectedDisposition}
+                        onChange={(e) => setSelectedDisposition(e.target.value as DispositionType)}
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                      >
+                        <option value="No Answer">No Answer</option>
+                        <option value="Connected">Connected</option>
+                        <option value="Voicemail">Voicemail</option>
+                        <option value="Busy">Busy</option>
+                        <option value="Wrong Number">Wrong Number</option>
+                        <option value="Meeting Set">Meeting Set</option>
+                        <option value="Not Interested">Not Interested</option>
+                        <option value="Callback">Callback</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Note</label>
+                      <textarea
+                        value={callNote}
+                        onChange={(e) => setCallNote(e.target.value)}
+                        placeholder="Add notes about this call..."
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm h-24 resize-none"
+                      />
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleLogCall}
+                        className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700"
+                      >
+                        Log Call
+                      </button>
+                      <button
+                        onClick={handleLogAndDialNext}
+                        className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-sm font-medium flex items-center justify-center gap-2"
+                      >
+                        <Phone className="w-4 h-4" />
+                        Log & Dial Next
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {nextProspect && (
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-base font-semibold text-gray-900 dark:text-white">Next dial</h4>
+                      <div className="flex items-center gap-2">
+                        <Linkedin className="w-4 h-4 text-blue-600" />
+                      </div>
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">Name</span>
+                        <span className="text-gray-900 dark:text-white">{nextProspect.firstName} {nextProspect.lastName}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500 flex items-center gap-1">
+                          <Phone className="w-3 h-3" /> Other
+                        </span>
+                        <button
+                          onClick={() => setPhoneHistoryModal({
+                            isOpen: true,
+                            prospectId: nextProspect.id,
+                            prospectName: `${nextProspect.firstName} ${nextProspect.lastName}`,
+                            phoneNumber: nextProspect.phone
+                          })}
+                          className="text-blue-600 hover:text-blue-800 hover:underline"
+                        >
+                          {nextProspect.phone}
+                        </button>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500">City</span>
+                        <span className="text-gray-900 dark:text-white">
+                          {nextProspect.timezone?.split('/')[1]?.replace('_', ' ') || 'San Diego'}
+                        </span>
+                      </div>
+                      {nextProspect.notes && (
+                        <div>
+                          <span className="text-gray-500">Note</span>
+                          <p className="text-gray-900 dark:text-white mt-1">{nextProspect.notes}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Rest of Queue Table */}
+        <div className="flex-1 overflow-auto">
+          {activeQueue.map((prospect, idx) => {
+            if (isActive && idx === currentIndex) return null;
+            
+            const isCompleted = completedIds.includes(prospect.id);
+            
+            return (
+              <div 
+                key={prospect.id}
+                className={`grid grid-cols-12 gap-2 px-4 py-3 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/30 ${
+                  isCompleted ? 'opacity-60' : ''
+                }`}
+              >
+                <div className="col-span-1">
+                  <input 
+                    type="checkbox"
+                    checked={selectedIds.includes(prospect.id)}
+                    onChange={(e) => handleSelectOne(prospect.id, e.target.checked)}
+                    className="rounded border-gray-300"
+                  />
+                </div>
+                <div className="col-span-2">
+                  {getStatusBadge(prospect, idx)}
+                </div>
+                <div className="col-span-3 text-sm font-medium text-gray-900 dark:text-white">
+                  {prospect.firstName} {prospect.lastName}
+                </div>
+                <div className="col-span-3 text-sm text-gray-600 dark:text-gray-400 flex items-center gap-2">
+                  <Phone className="w-3.5 h-3.5" />
+                  <button
+                    onClick={() => setPhoneHistoryModal({
+                      isOpen: true,
+                      prospectId: prospect.id,
+                      prospectName: `${prospect.firstName} ${prospect.lastName}`,
+                      phoneNumber: prospect.phone
+                    })}
+                    className="text-blue-600 hover:text-blue-800 hover:underline"
+                  >
+                    {prospect.phone}
+                  </button>
+                </div>
+                <div className="col-span-1">
+                  <Linkedin className="w-4 h-4 text-gray-400" />
+                </div>
+                <div className="col-span-2 text-sm text-gray-600 dark:text-gray-400">
+                  {prospect.timezone?.split('/')[1]?.replace('_', ' ') || 'San Diego'}
+                </div>
+              </div>
+            );
+          })}
+
+          {queue.length === 0 && (
+            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+              No prospects available. Please add prospects to begin dialing.
             </div>
           )}
         </div>
-      ) : (
-        /* Active Dialing Screen */
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
-          {/* Left Panel - Queue */}
-          <div className="lg:col-span-1 bg-slate-900 rounded-xl border border-slate-700 overflow-hidden flex flex-col">
-            <div className="p-4 border-b border-slate-700 flex items-center justify-between">
-              <h3 className="font-semibold text-white">Queue</h3>
-              <span className="text-sm text-slate-400">{completedIds.length}/{activeQueue.length}</span>
-            </div>
-            <div className="flex-1 overflow-y-auto p-2 space-y-1">
-              {activeQueue.map((prospect, index) => {
-                const isCurrent = currentIndex === index;
-                const isDone = completedIds.includes(prospect.id);
-                return (
-                  <div
-                    key={prospect.id}
-                    onClick={() => {
-                      setModalProspect(prospect);
-                      setShowLeadModal(true);
-                    }}
-                    className={`
-                      p-3 rounded-lg cursor-pointer transition-all flex items-center gap-3
-                      ${isCurrent 
-                        ? 'bg-blue-600/20 border border-blue-500/50' 
-                        : isDone 
-                          ? 'bg-slate-800/30 opacity-50' 
-                          : 'bg-slate-800/50 hover:bg-slate-700/50'
-                      }
-                    `}
-                  >
-                    <div className={`
-                      w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0
-                      ${isCurrent ? 'bg-blue-600 text-white' : isDone ? 'bg-green-600 text-white' : 'bg-slate-700 text-slate-400'}
-                    `}>
-                      {isDone ? <CheckCircle size={16} /> : <User size={16} />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className={`font-medium truncate ${isCurrent ? 'text-blue-400' : isDone ? 'text-slate-500' : 'text-white'}`}>
-                        {prospect.firstName} {prospect.lastName}
-                      </p>
-                      <p className="text-slate-500 text-xs truncate">{prospect.company}</p>
-                    </div>
-                    {isCurrent && (
-                      <ChevronRight size={16} className="text-blue-400 flex-shrink-0" />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+      </div>
 
-          {/* Right Panel - Controls & Stats */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Current Lead Card */}
-            {currentProspect && (
-              <div className="bg-slate-900 rounded-xl border border-slate-700 p-6">
-                <div className="flex items-start gap-4">
-                  <div className="w-16 h-16 bg-slate-700 rounded-xl flex items-center justify-center text-slate-400">
-                    <User size={32} />
-                  </div>
-                  <div className="flex-1">
-                    <h2 className="text-2xl font-bold text-white">
-                      {currentProspect.firstName} {currentProspect.lastName}
-                    </h2>
-                    <div className="flex items-center gap-1 text-slate-400 mt-1">
-                      <Building size={14} />
-                      <span>{currentProspect.title} at {currentProspect.company}</span>
-                    </div>
-                    <div className="flex items-center gap-4 mt-3">
-                      <span className="text-slate-300">{currentProspect.phone}</span>
-                      <span className="text-slate-500">{currentProspect.email}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Control Panel */}
-            <div className="bg-slate-900 rounded-xl border border-slate-700 p-6">
-              <div className="flex flex-wrap gap-3 justify-center">
-                <button
-                  onClick={handlePauseResume}
-                  className={`
-                    px-6 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all
-                    ${effectivePaused 
-                      ? 'bg-green-600 hover:bg-green-500 text-white' 
-                      : 'bg-yellow-600 hover:bg-yellow-500 text-white'
-                    }
-                  `}
-                >
-                  {effectivePaused ? <Play size={20} /> : <Pause size={20} />}
-                  {effectivePaused ? 'Resume' : 'Pause'}
-                </button>
-
-                <button
-                  onClick={handleSkip}
-                  disabled={effectivePaused || currentIndex >= activeQueue.length - 1}
-                  className="px-6 py-3 bg-orange-600 hover:bg-orange-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold rounded-xl flex items-center gap-2 transition-all"
-                >
-                  <SkipForward size={20} />
-                  Skip
-                </button>
-
-                <button
-                  onClick={handleStop}
-                  className="px-6 py-3 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-xl flex items-center gap-2 transition-all"
-                >
-                  <X size={20} />
-                  Stop
-                </button>
-              </div>
-
-              {/* Status indicator */}
-              <div className="mt-6 flex items-center justify-center gap-2">
-                <div className={`w-3 h-3 rounded-full ${effectivePaused ? 'bg-yellow-500' : 'bg-green-500 animate-pulse'}`} />
-                <span className="text-slate-400">
-                  {effectivePaused ? 'Paused - Waiting to resume' : 'Active - Dialing in progress'}
-                </span>
-              </div>
-            </div>
-
-            {/* Progress Stats */}
-            <div className="bg-slate-900 rounded-xl border border-slate-700 p-6">
-              <div className="grid grid-cols-3 gap-6 text-center mb-4">
-                <div>
-                  <p className="text-3xl font-bold text-green-500">{completedIds.length}</p>
-                  <p className="text-slate-400 text-sm mt-1">Completed</p>
-                </div>
-                <div>
-                  <p className="text-3xl font-bold text-blue-500">{activeQueue.length - completedIds.length}</p>
-                  <p className="text-slate-400 text-sm mt-1">Remaining</p>
-                </div>
-                <div>
-                  <p className="text-3xl font-bold text-white">{Math.round(progressPercentage)}%</p>
-                  <p className="text-slate-400 text-sm mt-1">Progress</p>
-                </div>
-              </div>
-              <div className="w-full bg-slate-700 rounded-full h-2">
-                <div 
-                  className="bg-gradient-to-r from-blue-600 to-green-500 h-2 rounded-full transition-all duration-500"
-                  style={{ width: `${progressPercentage}%` }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Lead Info Modal */}
-      {showLeadModal && modalProspect && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowLeadModal(false)} />
-          <div className="relative bg-slate-900 rounded-xl shadow-2xl border border-slate-700 p-6 w-full max-w-md">
-            <button 
-              className="absolute top-4 right-4 text-slate-400 hover:text-white" 
-              onClick={() => setShowLeadModal(false)}
-            >
-              <X size={20} />
-            </button>
-            
-            {!editMode ? (
-              <>
-                <h3 className="text-xl font-bold text-white mb-4">Lead Details</h3>
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-slate-700 rounded-full flex items-center justify-center text-slate-400">
-                      <User size={24} />
-                    </div>
-                    <div>
-                      <p className="text-white font-semibold">{modalProspect.firstName} {modalProspect.lastName}</p>
-                      <p className="text-slate-400 text-sm">{modalProspect.title}</p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div className="bg-slate-800 p-3 rounded-lg">
-                      <p className="text-slate-400 text-xs mb-1">Company</p>
-                      <p className="text-white">{modalProspect.company}</p>
-                    </div>
-                    <div className="bg-slate-800 p-3 rounded-lg">
-                      <p className="text-slate-400 text-xs mb-1">Status</p>
-                      <p className="text-white">{modalProspect.status}</p>
-                    </div>
-                    <div className="bg-slate-800 p-3 rounded-lg">
-                      <p className="text-slate-400 text-xs mb-1">Phone</p>
-                      <p className="text-white">{modalProspect.phone}</p>
-                    </div>
-                    <div className="bg-slate-800 p-3 rounded-lg">
-                      <p className="text-slate-400 text-xs mb-1">Email</p>
-                      <p className="text-white truncate">{modalProspect.email}</p>
-                    </div>
-                  </div>
-                  {modalProspect.notes && (
-                    <div className="bg-slate-800 p-3 rounded-lg">
-                      <p className="text-slate-400 text-xs mb-1">Notes</p>
-                      <p className="text-white text-sm">{modalProspect.notes}</p>
-                    </div>
-                  )}
-                </div>
-                {user?.role === 'admin' && (
-                  <div className="flex gap-2 mt-6">
-                    <button 
-                      className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium"
-                      onClick={() => { setEditMode(true); setEditProspect(modalProspect); }}
-                    >
-                      Edit
-                    </button>
-                    <button 
-                      className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium"
-                      onClick={() => { 
-                        if (onDeleteProspect && modalProspect) { 
-                          onDeleteProspect(modalProspect.id); 
-                          setShowLeadModal(false); 
-                        } 
-                      }}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                <h3 className="text-xl font-bold text-white mb-4">Edit Lead</h3>
-                <form className="space-y-3" onSubmit={async e => {
-                  e.preventDefault();
-                  if (editProspect) {
-                    try {
-                      await backendAPI.updateProspect(editProspect.id, editProspect);
-                      if (onUpdateProspect) {
-                        onUpdateProspect(editProspect.id, editProspect);
-                      }
-                    } catch (err) {
-                      console.error('Failed to save prospect:', err);
-                      alert('Failed to save changes');
-                    }
-                  }
-                  setEditMode(false);
-                  setShowLeadModal(false);
-                }}>
-                  <div className="grid grid-cols-2 gap-3">
-                    <input type="text" className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-white" value={editProspect?.firstName || ''} onChange={e => setEditProspect(p => p ? { ...p, firstName: e.target.value } : p)} placeholder="First Name" />
-                    <input type="text" className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-white" value={editProspect?.lastName || ''} onChange={e => setEditProspect(p => p ? { ...p, lastName: e.target.value } : p)} placeholder="Last Name" />
-                  </div>
-                  <input type="text" className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-white" value={editProspect?.title || ''} onChange={e => setEditProspect(p => p ? { ...p, title: e.target.value } : p)} placeholder="Title" />
-                  <input type="text" className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-white" value={editProspect?.company || ''} onChange={e => setEditProspect(p => p ? { ...p, company: e.target.value } : p)} placeholder="Company" />
-                  <input type="text" className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-white" value={editProspect?.phone || ''} onChange={e => setEditProspect(p => p ? { ...p, phone: e.target.value } : p)} placeholder="Phone" />
-                  <input type="email" className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-white" value={editProspect?.email || ''} onChange={e => setEditProspect(p => p ? { ...p, email: e.target.value } : p)} placeholder="Email" />
-                  <select className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-white" value={editProspect?.status || ''} onChange={e => setEditProspect(p => p ? { ...p, status: e.target.value as any } : p)}>
-                    <option value="New">New</option>
-                    <option value="Contacted">Contacted</option>
-                    <option value="Qualified">Qualified</option>
-                    <option value="Lost">Lost</option>
-                    <option value="Do Not Call">Do Not Call</option>
-                  </select>
-                  <textarea className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-white" rows={2} value={editProspect?.notes || ''} onChange={e => setEditProspect(p => p ? { ...p, notes: e.target.value } : p)} placeholder="Notes" />
-                  <div className="flex gap-2 pt-2">
-                    <button type="submit" className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium">Save</button>
-                    <button type="button" className="flex-1 px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded-lg font-medium" onClick={() => setEditMode(false)}>Cancel</button>
-                  </div>
-                </form>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Phone Call History Modal */}
+      <PhoneCallHistory
+        isOpen={phoneHistoryModal.isOpen}
+        prospectId={phoneHistoryModal.prospectId}
+        prospectName={phoneHistoryModal.prospectName}
+        phoneNumber={phoneHistoryModal.phoneNumber}
+        onClose={() => setPhoneHistoryModal({ isOpen: false, prospectId: '', prospectName: '', phoneNumber: '' })}
+      />
     </div>
   );
-});
+};
 
 export default PowerDialer;

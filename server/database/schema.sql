@@ -47,17 +47,42 @@ CREATE TABLE IF NOT EXISTS prospect_status_log (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Lead Activity Log - comprehensive audit trail for everything done to a lead
+CREATE TABLE IF NOT EXISTS lead_activity_log (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    prospect_id UUID NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id),
+    action_type VARCHAR(50) NOT NULL, -- 'call', 'status_change', 'note_added', 'note_edited', 'field_updated', 'created', 'assigned', 'list_added', 'list_removed'
+    action_description TEXT NOT NULL, -- Human readable description
+    old_value TEXT, -- Previous value (for edits)
+    new_value TEXT, -- New value (for edits)
+    field_name VARCHAR(100), -- Which field was changed (for field_updated)
+    metadata JSONB, -- Additional context (call duration, disposition, etc.)
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for fast activity log queries
+CREATE INDEX IF NOT EXISTS idx_lead_activity_prospect ON lead_activity_log(prospect_id);
+CREATE INDEX IF NOT EXISTS idx_lead_activity_user ON lead_activity_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_lead_activity_type ON lead_activity_log(action_type);
+CREATE INDEX IF NOT EXISTS idx_lead_activity_created ON lead_activity_log(created_at DESC);
+
 -- Call logs - tracks all call attempts
 CREATE TABLE IF NOT EXISTS call_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    prospect_id UUID NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
-    caller_id UUID NOT NULL REFERENCES users(id),
+    prospect_id UUID REFERENCES prospects(id) ON DELETE CASCADE, -- Nullable to allow orphan call logs
+    caller_id UUID REFERENCES users(id), -- Nullable to allow anonymous calls
     phone_number VARCHAR(50) NOT NULL,
     from_number VARCHAR(50),
     outcome VARCHAR(100),
     duration INTEGER DEFAULT 0, -- in seconds
     notes TEXT,
     recording_url VARCHAR(500),
+    call_sid VARCHAR(100), -- Twilio Call SID for tracking
+    end_reason VARCHAR(50), -- How the call ended: customer_hangup, agent_hangup, voicemail, no_answer, busy, failed, canceled, etc.
+    answered_by VARCHAR(20), -- 'human', 'machine', or 'unknown' (AMD result)
     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     ended_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

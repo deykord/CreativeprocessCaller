@@ -13,9 +13,15 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
   const [permissions, setPermissions] = useState<Map<string, LeadListPermission[]>>(new Map());
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedList, setSelectedList] = useState<LeadList | null>(null);
+  const [selectedListForDelete, setSelectedListForDelete] = useState<LeadList | null>(null);
+  const [selectedLeadForDelete, setSelectedLeadForDelete] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isMounted, setIsMounted] = useState(true);
 
   const [newListData, setNewListData] = useState({
     name: '',
@@ -31,13 +37,21 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
 
   // Load lead lists
   useEffect(() => {
+    setIsMounted(true);
     loadLeadLists();
+    return () => {
+      setIsMounted(false);
+    };
   }, []);
 
   const loadLeadLists = async () => {
     try {
       setLoading(true);
+      setError(null);
       const lists = await backendAPI.getLeadLists();
+      
+      if (!isMounted) return; // Don't update state if component unmounted
+
       setLeadLists(lists);
 
       // Load permissions for each list
@@ -45,19 +59,27 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
       for (const list of lists) {
         try {
           const perms = await backendAPI.getLeadListPermissions(list.id);
-          permissionsMap.set(list.id, perms);
+          if (isMounted) {
+            permissionsMap.set(list.id, perms);
+          }
         } catch (err) {
           // List creator may not have permission to view others' permissions
           permissionsMap.set(list.id, []);
         }
       }
-      setPermissions(permissionsMap);
-      setError(null);
+      
+      if (isMounted) {
+        setPermissions(permissionsMap);
+      }
     } catch (err) {
       console.error('Failed to load lead lists:', err);
-      setError('Failed to load lead lists');
+      if (isMounted) {
+        setError('Failed to load lead lists');
+      }
     } finally {
-      setLoading(false);
+      if (isMounted) {
+        setLoading(false);
+      }
     }
   };
 
@@ -89,14 +111,80 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
   };
 
   const handleDeleteList = async (listId: string) => {
-    if (!window.confirm('Are you sure you want to delete this lead list?')) return;
+    setSelectedListForDelete(leadLists.find(l => l.id === listId) || null);
+    setShowDeleteModal(true);
+  };
+
+  const confirmDeleteList = async () => {
+    if (!selectedListForDelete) return;
 
     try {
-      await backendAPI.deleteLeadList(listId);
-      await loadLeadLists();
+      setIsDeleting(true);
+      setError(null);
+      
+      await backendAPI.deleteLeadList(selectedListForDelete.id);
+      
+      if (isMounted) {
+        setSuccess(`Lead list "${selectedListForDelete.name}" deleted successfully`);
+        setShowDeleteModal(false);
+        setSelectedListForDelete(null);
+        
+        // Update state immediately instead of reloading
+        setLeadLists(prev => prev.filter(l => l.id !== selectedListForDelete.id));
+        setPermissions(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(selectedListForDelete.id);
+          return newMap;
+        });
+        
+        // Clear success message after 3 seconds
+        setTimeout(() => {
+          if (isMounted) setSuccess(null);
+        }, 3000);
+      }
     } catch (err) {
       console.error('Failed to delete lead list:', err);
-      setError('Failed to delete lead list');
+      if (isMounted) {
+        setError('Failed to delete lead list');
+      }
+    } finally {
+      if (isMounted) {
+        setIsDeleting(false);
+      }
+    }
+  };
+
+  const handleDeleteLeadFromList = async (listId: string, leadId: string) => {
+    if (!window.confirm('Remove this lead from the list?')) return;
+
+    try {
+      setError(null);
+      const list = leadLists.find(l => l.id === listId);
+      if (!list) return;
+
+      // Update the list by removing the prospect
+      const updatedProspectIds = list.prospectIds.filter(id => id !== leadId);
+      await backendAPI.updateLeadList(listId, { prospectIds: updatedProspectIds });
+      
+      if (isMounted) {
+        setSuccess('Lead removed from list');
+        // Update local state
+        setLeadLists(prev => prev.map(l => 
+          l.id === listId 
+            ? { ...l, prospectIds: updatedProspectIds, prospectCount: updatedProspectIds.length }
+            : l
+        ));
+        
+        // Clear success message after 3 seconds
+        setTimeout(() => {
+          if (isMounted) setSuccess(null);
+        }, 3000);
+      }
+    } catch (err) {
+      console.error('Failed to delete lead from list:', err);
+      if (isMounted) {
+        setError('Failed to remove lead from list');
+      }
     }
   };
 
@@ -160,8 +248,16 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
         </div>
 
         {error && (
-          <div className="mb-4 p-4 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-lg">
-            {error}
+          <div className="mb-4 p-4 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-lg flex justify-between items-center">
+            <span>{error}</span>
+            <button onClick={() => setError(null)} className="text-red-700 dark:text-red-300 hover:font-semibold">✕</button>
+          </div>
+        )}
+
+        {success && (
+          <div className="mb-4 p-4 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-lg flex justify-between items-center">
+            <span>{success}</span>
+            <button onClick={() => setSuccess(null)} className="text-green-700 dark:text-green-300 hover:font-semibold">✕</button>
           </div>
         )}
 
@@ -182,6 +278,8 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {leadLists.map((list) => {
               const listPermissions = permissions.get(list.id) || [];
+              const listProspects = prospects.filter(p => list.prospectIds.includes(p.id));
+              
               return (
                 <div
                   key={list.id}
@@ -209,15 +307,38 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
                     </div>
                   </div>
 
+                  {listProspects.length > 0 && (
+                    <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg max-h-48 overflow-y-auto">
+                      <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 mb-2">Leads in this list:</p>
+                      <div className="space-y-2">
+                        {listProspects.map((prospect) => (
+                          <div key={prospect.id} className="text-xs text-gray-700 dark:text-gray-300 flex items-center justify-between bg-white dark:bg-slate-700 p-2 rounded">
+                            <span className="truncate">
+                              {prospect.firstName} {prospect.lastName}
+                              <span className="text-gray-500 ml-1">({prospect.company})</span>
+                            </span>
+                            <button
+                              onClick={() => handleDeleteLeadFromList(list.id, prospect.id)}
+                              className="ml-2 text-red-600 hover:text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 px-2 py-1 rounded"
+                              title="Remove lead from list"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {listPermissions.length > 0 && (
-                    <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                      <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 mb-2">Shared with:</p>
+                    <div className="mb-4 p-3 bg-gray-50 dark:bg-slate-700 rounded-lg">
+                      <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">Shared with:</p>
                       <div className="space-y-1">
                         {listPermissions.map((perm) => (
                           <div key={perm.id} className="text-xs text-gray-700 dark:text-gray-300 flex items-center justify-between">
                             <span>
                               User {perm.userId.substring(0, 8)}... 
-                              <span className="ml-2">
+                              <span className="ml-2 text-gray-500">
                                 {perm.canEdit ? '(Edit)' : perm.canView ? '(View)' : ''}
                               </span>
                             </span>
@@ -245,6 +366,7 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
                     <button
                       onClick={() => handleDeleteList(list.id)}
                       className="px-3 py-2 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 font-semibold rounded-lg transition"
+                      title="Delete entire list"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -431,6 +553,60 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteModal && selectedListForDelete && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-slate-800 rounded-lg shadow-xl max-w-md w-full">
+              <div className="p-6">
+                <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 dark:bg-red-900/30 rounded-full mb-4">
+                  <Trash2 size={24} className="text-red-600 dark:text-red-400" />
+                </div>
+                
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white text-center mb-2">
+                  Delete Lead List
+                </h3>
+                
+                <p className="text-gray-600 dark:text-gray-400 text-center mb-4">
+                  Are you sure you want to delete <span className="font-semibold">"{selectedListForDelete.name}"</span>? 
+                </p>
+                
+                <p className="text-sm text-gray-500 dark:text-gray-500 text-center mb-6">
+                  This action cannot be undone. You have <span className="font-semibold">{selectedListForDelete.prospectCount}</span> leads in this list.
+                </p>
+
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteModal(false)}
+                    disabled={isDeleting}
+                    className="flex-1 px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 font-semibold transition disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmDeleteList}
+                    disabled={isDeleting}
+                    className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isDeleting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        Deleting...
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 size={16} />
+                        Delete List
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}

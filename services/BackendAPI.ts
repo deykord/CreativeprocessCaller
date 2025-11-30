@@ -1,5 +1,5 @@
 
-import { Prospect, CallLog, TwilioPhoneNumber, AuthResponse, User, Message, LeadList, LeadListPermission } from '../types';
+import { Prospect, CallLog, TwilioPhoneNumber, AuthResponse, User, Message, LeadList, LeadListPermission, StatusChange, ProspectCallLog, LeadActivityLog, TwilioCallStatus, CallEndReason } from '../types';
 
 // Determine API URL based on environment
 const getAPIBaseURL = () => {
@@ -39,7 +39,23 @@ export const backendAPI = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
     });
-    return res.json();
+    let data: any;
+    try {
+      if (res.ok) {
+        data = await res.json();
+      } else {
+        // Try to parse as JSON, fallback to text
+        const text = await res.text();
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { success: false, error: text.startsWith('<') ? 'Server error: received HTML response' : text };
+        }
+      }
+    } catch (err) {
+      data = { success: false, error: 'Network or server error' };
+    }
+    return data;
   },
 
   async logout(): Promise<void> {
@@ -51,18 +67,28 @@ export const backendAPI = {
     const token = localStorage.getItem('authToken');
     if (!token) return null;
     
-    const res = await fetch(`${API_BASE_URL}/auth/profile`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    
-    if (!res.ok) {
-      localStorage.removeItem('authToken');
-      localStorage.removeItem('user');
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/profile`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (!res.ok) {
+        // Only log non-401 errors (401 is expected when token expires)
+        if (res.status !== 401) {
+          console.error(`Profile fetch failed with status ${res.status}`);
+        }
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('user');
+        return null;
+      }
+      
+      const data = await res.json();
+      return data.user;
+    } catch (error) {
+      // Suppress network errors during profile check
+      console.debug('Profile check failed:', error);
       return null;
     }
-    
-    const data = await res.json();
-    return data.user;
   },
 
   getAuthToken(): string | null {
@@ -110,6 +136,36 @@ export const backendAPI = {
     return res.json();
   },
 
+  async deleteProspect(id: string): Promise<void> {
+    await fetch(`${API_BASE_URL}/prospects/${id}`, {
+      method: 'DELETE'
+    });
+  },
+
+  async getProspectStatusHistory(prospectId: string): Promise<StatusChange[]> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/prospects/${prospectId}/status-history`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    return res.json();
+  },
+
+  async getProspectCallHistory(prospectId: string): Promise<ProspectCallLog[]> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/prospects/${prospectId}/call-history`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    return res.json();
+  },
+
+  async getProspectActivityLog(prospectId: string, limit: number = 100): Promise<LeadActivityLog[]> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/prospects/${prospectId}/activity-log?limit=${limit}`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    return res.json();
+  },
+
   // --- Calls ---
 
   async getCallHistory(): Promise<CallLog[]> {
@@ -118,10 +174,77 @@ export const backendAPI = {
   },
 
   async logCall(log: Partial<CallLog>): Promise<CallLog> {
+    const token = localStorage.getItem('authToken');
     const res = await fetch(`${API_BASE_URL}/calls`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`
+      },
       body: JSON.stringify(log)
+    });
+    return res.json();
+  },
+
+  // --- Recordings ---
+
+  async getRecordings(): Promise<any[]> {
+    const res = await fetch(`${API_BASE_URL}/calls/recordings`);
+    return res.json();
+  },
+
+  async deleteRecording(id: string): Promise<void> {
+    await fetch(`${API_BASE_URL}/calls/recordings/${id}`, { method: 'DELETE' });
+  },
+
+  async deleteRecordings(ids: string[]): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/calls/recordings/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids })
+    });
+    return res.json();
+  },
+
+  async deleteAllRecordings(): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/calls/recordings`, { method: 'DELETE' });
+    return res.json();
+  },
+
+  async getRecordingDownloadUrl(id: string): Promise<string> {
+    // This endpoint redirects to the actual recording URL; return the redirect path so the caller can open it
+    return `${API_BASE_URL}/calls/recording/${id}/download`;
+  },
+
+  // --- Call Log Deletion ---
+
+  async deleteCallLog(id: string): Promise<any> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/calls/logs/${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    return res.json();
+  },
+
+  async deleteCallLogs(ids: string[]): Promise<any> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/calls/logs/delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`
+      },
+      body: JSON.stringify({ ids })
+    });
+    return res.json();
+  },
+
+  async deleteAllCallLogs(): Promise<any> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/calls/logs`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token || ''}` }
     });
     return res.json();
   },
@@ -135,6 +258,43 @@ export const backendAPI = {
 
   async getTwilioNumbers(): Promise<TwilioPhoneNumber[]> {
     const res = await fetch(`${API_BASE_URL}/voice/numbers`);
+    return res.json();
+  },
+
+  // --- Real-time Call Status ---
+
+  async getCallStatus(callSid: string): Promise<TwilioCallStatus> {
+    const res = await fetch(`${API_BASE_URL}/voice/calls/${callSid}/status`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch call status: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  async getCachedCallStatus(callSid: string): Promise<TwilioCallStatus | null> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/voice/calls/${callSid}/cached-status`);
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`Failed to fetch cached status: ${res.status}`);
+      return res.json();
+    } catch {
+      return null;
+    }
+  },
+
+  async getActiveCalls(): Promise<TwilioCallStatus[]> {
+    const res = await fetch(`${API_BASE_URL}/voice/calls/active`);
+    return res.json();
+  },
+
+  async endCall(callSid: string): Promise<{ callSid: string; status: string; endReason: string; duration: number }> {
+    const res = await fetch(`${API_BASE_URL}/voice/calls/${callSid}/end`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to end call: ${res.status}`);
+    }
     return res.json();
   },
 
@@ -264,5 +424,78 @@ export const backendAPI = {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${token || ''}` }
     });
+  },
+
+  // --- Sales Floor ---
+
+  async getSalesFloorActivity(): Promise<{
+    teamStats: Array<{
+      userId: string;
+      callsMade: number;
+      statusChanges: number;
+      lastActivity: string | null;
+      dispositions: Record<string, number>;
+    }>;
+    recentActivity: Array<{
+      id: string;
+      userId: string;
+      action: string;
+      prospectId?: string;
+      prospectName?: string;
+      details: string;
+      timestamp: string;
+      duration?: number;
+      disposition?: string;
+    }>;
+  }> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/sales-floor/team`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    return res.json();
+  },
+
+  async getSalesFloorStats(userId?: string): Promise<{
+    userId: string;
+    callsMade: number;
+    statusChanges: number;
+    lastActivity: string | null;
+    dispositions: Record<string, number>;
+  }[]> {
+    const token = localStorage.getItem('authToken');
+    const url = userId 
+      ? `${API_BASE_URL}/sales-floor/stats?userId=${userId}`
+      : `${API_BASE_URL}/sales-floor/stats`;
+    const res = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    const data = await res.json();
+    return data.stats;
+  },
+
+  async getActivityLogs(filters?: { userId?: string; startDate?: string; endDate?: string; limit?: number }): Promise<Array<{
+    id: string;
+    userId: string;
+    action: string;
+    prospectId?: string;
+    prospectName?: string;
+    details: string;
+    timestamp: string;
+    duration?: number;
+    disposition?: string;
+  }>> {
+    const token = localStorage.getItem('authToken');
+    const params = new URLSearchParams();
+    if (filters?.userId) params.append('userId', filters.userId);
+    if (filters?.startDate) params.append('startDate', filters.startDate);
+    if (filters?.endDate) params.append('endDate', filters.endDate);
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+    
+    const url = `${API_BASE_URL}/sales-floor/activity${params.toString() ? '?' + params.toString() : ''}`;
+    const res = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    const data = await res.json();
+    return data.logs;
   }
 };

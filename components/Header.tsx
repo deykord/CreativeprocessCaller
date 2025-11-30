@@ -11,6 +11,9 @@ interface HeaderProps {
   onCallerIdChange: (id: string) => void;
   twilioNumbers: TwilioPhoneNumber[];
   onViewProfile?: () => void;
+  onStartSession?: () => void; // Add handler for Start Session button
+  showStartSession?: boolean; // Show button only on certain views
+  children?: React.ReactNode; // Allow custom buttons/elements
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -22,6 +25,9 @@ export const Header: React.FC<HeaderProps> = ({
   onCallerIdChange,
   twilioNumbers,
   onViewProfile,
+  onStartSession,
+  showStartSession = false,
+  children,
 }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -77,6 +83,20 @@ export const Header: React.FC<HeaderProps> = ({
       </h1>
 
       <div className="flex items-center space-x-4">
+        {/* Custom children (e.g., Sales Floor toggle) */}
+        {children}
+
+        {/* Start Session Button (Orum-style) */}
+        {showStartSession && onStartSession && (
+          <button
+            onClick={onStartSession}
+            className="hidden md:flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 text-white font-semibold rounded-lg shadow-lg shadow-green-600/30 hover:shadow-green-500/40 transition-all duration-200 transform hover:scale-105"
+          >
+            <Phone size={18} />
+            Start Session
+          </button>
+        )}
+
         {/* Caller ID Selector */}
         <div className="relative">
           <button

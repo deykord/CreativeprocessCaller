@@ -14,9 +14,18 @@ async function migrate() {
   console.log('Starting database migration...');
 
   try {
-    // 1. Initialize schema
-    console.log('\n1. Initializing database schema...');
-    await databaseService.initializeSchema();
+    // 1. Initialize schema (skip if already exists)
+    console.log('\n1. Checking database schema...');
+    try {
+      await databaseService.initializeSchema();
+      console.log('Database schema initialized successfully');
+    } catch (error) {
+      if (error.code === '42710' || error.message.includes('already exists')) {
+        console.log('Database schema already exists, skipping initialization');
+      } else {
+        throw error;
+      }
+    }
 
     // 2. Migrate users
     console.log('\n2. Migrating users...');
@@ -47,7 +56,7 @@ async function migrate() {
 
     // 3. Migrate prospects
     console.log('\n3. Migrating prospects...');
-    const prospects = mockDatabase.prospects;
+    const prospects = await mockDatabase.getAllProspects();
     const prospectIdMap = {}; // Old ID -> New UUID mapping
 
     for (const prospect of prospects) {
@@ -81,7 +90,7 @@ async function migrate() {
 
     // 4. Migrate call logs
     console.log('\n4. Migrating call logs...');
-    const callLogs = mockDatabase.callHistory;
+    const callLogs = mockDatabase.callHistory || [];
 
     for (const log of callLogs) {
       try {

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const dbService = require('../services/databaseService');
-const { authenticateToken } = require('../middleware/authMiddleware');
+const authMiddleware = require('../middleware/authMiddleware');
 
 const USE_DATABASE = process.env.USE_DATABASE === 'true';
 
@@ -9,7 +9,7 @@ const USE_DATABASE = process.env.USE_DATABASE === 'true';
  * Check if a prospect can be called (duplicate prevention)
  * GET /api/prospects/:id/can-call
  */
-router.get('/:id/can-call', authenticateToken, async (req, res) => {
+router.get('/:id/can-call', authMiddleware, async (req, res) => {
   try {
     if (!USE_DATABASE) {
       return res.json({ allowed: true, reason: 'Database not enabled' });
@@ -30,7 +30,7 @@ router.get('/:id/can-call', authenticateToken, async (req, res) => {
  * Start a call (create active call record)
  * POST /api/prospects/:id/start-call
  */
-router.post('/:id/start-call', authenticateToken, async (req, res) => {
+router.post('/:id/start-call', authMiddleware, async (req, res) => {
   try {
     if (!USE_DATABASE) {
       return res.json({ success: true, message: 'Database not enabled' });
@@ -56,7 +56,7 @@ router.post('/:id/start-call', authenticateToken, async (req, res) => {
  * End a call
  * POST /api/prospects/:id/end-call
  */
-router.post('/:id/end-call', authenticateToken, async (req, res) => {
+router.post('/:id/end-call', authMiddleware, async (req, res) => {
   try {
     if (!USE_DATABASE) {
       return res.json({ success: true, message: 'Database not enabled' });
@@ -77,7 +77,7 @@ router.post('/:id/end-call', authenticateToken, async (req, res) => {
  * Get prospect call history
  * GET /api/prospects/:id/call-history
  */
-router.get('/:id/call-history', authenticateToken, async (req, res) => {
+router.get('/:id/call-history', authMiddleware, async (req, res) => {
   try {
     if (!USE_DATABASE) {
       return res.json([]);
@@ -114,7 +114,7 @@ router.get('/:id/call-history', authenticateToken, async (req, res) => {
  * Get prospect status history
  * GET /api/prospects/:id/status-history
  */
-router.get('/:id/status-history', authenticateToken, async (req, res) => {
+router.get('/:id/status-history', authMiddleware, async (req, res) => {
   try {
     if (!USE_DATABASE) {
       return res.json([]);
@@ -147,7 +147,7 @@ router.get('/:id/status-history', authenticateToken, async (req, res) => {
  * Get all active calls
  * GET /api/active-calls
  */
-router.get('/active-calls', authenticateToken, async (req, res) => {
+router.get('/active-calls', authMiddleware, async (req, res) => {
   try {
     if (!USE_DATABASE) {
       return res.json([]);
@@ -177,7 +177,7 @@ router.get('/active-calls', authenticateToken, async (req, res) => {
  * Assign lead to agent
  * POST /api/prospects/:id/assign
  */
-router.post('/:id/assign', authenticateToken, async (req, res) => {
+router.post('/:id/assign', authMiddleware, async (req, res) => {
   try {
     if (!USE_DATABASE) {
       return res.json({ success: true, message: 'Database not enabled' });

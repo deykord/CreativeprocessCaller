@@ -15,6 +15,8 @@ interface TeamMember {
     viewReports: boolean;
     manageTeam: boolean;
     editSettings: boolean;
+    canDeleteLeads: boolean;
+    canEditLeads: boolean;
   };
   createdAt: string;
 }
@@ -36,7 +38,12 @@ export const TeamManagement: React.FC = () => {
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
 
   useEffect(() => {
-    loadTeamMembers();
+    try {
+      loadTeamMembers();
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Failed to load team members.' });
+      setTeamMembers([]);
+    }
   }, []);
 
   const loadTeamMembers = async () => {
@@ -88,6 +95,8 @@ export const TeamManagement: React.FC = () => {
             viewReports: formData.role !== 'agent',
             manageTeam: formData.role === 'admin',
             editSettings: formData.role === 'admin' || formData.role === 'manager',
+            canDeleteLeads: formData.role === 'admin',
+            canEditLeads: formData.role === 'admin' || formData.role === 'manager',
           },
           createdAt: new Date().toISOString(),
         };
@@ -223,7 +232,7 @@ export const TeamManagement: React.FC = () => {
       )}
 
       <div className="grid gap-4">
-        {teamMembers.length === 0 ? (
+        {(teamMembers.length === 0 && !message) ? (
           <div className="text-center py-12">
             <Users className="mx-auto text-gray-400 mb-4" size={48} />
             <p className="text-gray-500 dark:text-gray-400">No team members yet. Create one to get started.</p>
@@ -328,6 +337,8 @@ const EditMemberForm: React.FC<EditMemberFormProps> = ({ member, onSave, onCance
         viewReports: newRole !== 'agent',
         manageTeam: newRole === 'admin',
         editSettings: newRole === 'admin' || newRole === 'manager',
+        canDeleteLeads: newRole === 'admin',
+        canEditLeads: newRole === 'admin' || newRole === 'manager',
       },
     });
   };

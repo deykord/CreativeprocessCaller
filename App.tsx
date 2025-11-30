@@ -10,9 +10,10 @@ import { CallHistory } from './components/CallHistory';
 import { Header } from './components/Header';
 import { Login } from './components/Login';
 import UserProfile from './components/UserProfile';
+import { SalesFloor } from './components/SalesFloor';
 import { Prospect, CallState, AgentStats, CallLog, User, TwilioPhoneNumber } from './types';
 import { INITIAL_PROSPECTS, INITIAL_STATS } from './constants';
-import { LayoutGrid, Users, Phone, Settings as SettingsIcon, LogOut, Bell, History, Zap, Keyboard, Sun, Moon, List } from 'lucide-react';
+import { LayoutGrid, Users, Phone, Settings as SettingsIcon, LogOut, Bell, History, Zap, Keyboard, Sun, Moon, List, Activity } from 'lucide-react';
 
 // SERVICES
 import { liveTwilioService } from './services/LiveTwilioService';
@@ -34,7 +35,7 @@ const USE_BACKEND = true;
 const activeTwilioService = liveTwilioService;
 
 
-type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'history' | 'settings' | 'team-management' | 'profile' | 'lead-lists';
+type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'history' | 'settings' | 'team-management' | 'profile' | 'lead-lists' | 'sales-floor';
 
 const Dashboard: React.FC = () => {
     const [powerDialerDispositionSaved, setPowerDialerDispositionSaved] = useState(false);
@@ -103,8 +104,8 @@ const Dashboard: React.FC = () => {
           activeTwilioService.initialize('mock-token');
         }
 
-        activeTwilioService.registerStatusCallback((state) => {
-          setCurrentCall((prev) => prev ? { ...prev, state } : null);
+        activeTwilioService.registerStatusCallback((stateInfo) => {
+          setCurrentCall((prev) => prev ? { ...prev, state: stateInfo.state } : null);
         });
         setIsTwilioReady(true);
         setTwilioError(null);
@@ -126,9 +127,27 @@ const Dashboard: React.FC = () => {
       setCurrentCall({ prospect, state: CallState.DIALING, startTime: Date.now() });
       await activeTwilioService.connect(prospect.phone, callerId || undefined);
       setStats(prev => ({ ...prev, callsMade: prev.callsMade + 1 }));
-    } catch (err) {
+    } catch (err: any) {
       console.error("Call failed", err);
-      alert("Call failed to connect. Check console for details.");
+      
+      // Check for specific error types and provide user-friendly messages
+      let errorMessage = "Call failed to connect. Please try again.";
+      
+      // Check for duplicate call / already connected errors
+      if (err?.message?.toLowerCase().includes('pending') || 
+          err?.message?.toLowerCase().includes('already') ||
+          err?.code === 31002 || // Device is currently disconnecting
+          err?.code === 31003) { // Device is currently connecting to a call
+        errorMessage = "⚠️ Please wait - a call is already in progress. Complete the current call before dialing again.";
+      } else if (err?.code === 31204) { // Invalid phone number
+        errorMessage = "❌ Invalid phone number format. Please check the number and try again.";
+      } else if (err?.code === 20003) { // Auth error
+        errorMessage = "❌ Authentication error. Please refresh the page and try again.";
+      } else if (err?.message) {
+        errorMessage = `Call failed: ${err.message}`;
+      }
+      
+      alert(errorMessage);
       setCurrentCall(null);
       // Only set dispositionSaved, let PowerDialer handle advance
       setPowerDialerDispositionSaved(true);
@@ -319,6 +338,8 @@ const Dashboard: React.FC = () => {
                 prospects={prospects.slice(0, 5)} 
                 onCall={handleCall} 
                 onUpload={handleUpload}
+                onDelete={handleDeleteProspect}
+                onUpdate={handleUpdateProspect}
               />
             </div>
           </>
@@ -336,6 +357,8 @@ const Dashboard: React.FC = () => {
               prospects={prospects} 
               onCall={handleCall}
               onUpload={handleUpload}
+              onDelete={handleDeleteProspect}
+              onUpdate={handleUpdateProspect}
             />
           </>
         );
@@ -344,7 +367,6 @@ const Dashboard: React.FC = () => {
             queue={powerDialerQueue} 
             onCall={handleCall} 
             disabled={!isTwilioReady} 
-            onAdvanceToNext={() => { if (window.__powerDialerAdvanceToNext) window.__powerDialerAdvanceToNext(); }}
             dispositionSaved={powerDialerDispositionSaved}
             setDispositionSaved={setPowerDialerDispositionSaved}
             onDeleteProspect={handleDeleteProspect}
@@ -375,6 +397,8 @@ const Dashboard: React.FC = () => {
         ) : null;
       case 'lead-lists':
         return <Suspense fallback={<LoadingSpinner />}><LeadListManager prospects={prospects} teamMembers={teamMembers} /></Suspense>;
+      case 'sales-floor':
+        return <SalesFloor teamMembers={teamMembers} />;
       default:
         return <div>View not found</div>;
     }
@@ -426,6 +450,12 @@ const Dashboard: React.FC = () => {
               onClick={() => setCurrentView('history')} 
             />
             <NavItem 
+              icon={<Activity size={20} />} 
+              label="Sales Floor" 
+              active={currentView === 'sales-floor'} 
+              onClick={() => setCurrentView('sales-floor')} 
+            />
+            <NavItem 
               icon={<List size={20} />} 
               label="Lead Lists" 
               active={currentView === 'lead-lists'} 
@@ -471,10 +501,12 @@ const Dashboard: React.FC = () => {
             onCallerIdChange={setCallerId}
             twilioNumbers={twilioNumbers}
             onViewProfile={() => setCurrentView('profile')}
+            onStartSession={() => setCurrentView('power-dialer')}
+            showStartSession={currentView !== 'power-dialer'}
           />
 
-          {/* Active Call Bar - Inline at top, NOT a modal overlay */}
-          {currentCall && (
+          {/* Active Call Bar - Only show outside Power Dialer view (Power Dialer has inline call UI like Orum) */}
+          {currentCall && currentView !== 'power-dialer' && (
             <ActiveCallInterface 
               prospect={currentCall.prospect}
               callState={currentCall.state}
