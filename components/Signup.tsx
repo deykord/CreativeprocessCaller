@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { backendAPI } from '../services/BackendAPI';
 import '../styles/Auth.css';
@@ -15,6 +15,7 @@ interface SignupFormState {
 
 export const Signup: React.FC = () => {
   const navigate = useNavigate();
+  const [isDarkMode, setIsDarkMode] = useState(false);
   const [formState, setFormState] = useState<SignupFormState>({
     email: '',
     password: '',
@@ -24,6 +25,29 @@ export const Signup: React.FC = () => {
     loading: false,
     error: '',
   });
+
+  // Initialize dark mode from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('darkMode');
+    const prefersDark = saved !== null ? JSON.parse(saved) : window.matchMedia('(prefers-color-scheme: dark)').matches;
+    setIsDarkMode(prefersDark);
+    if (prefersDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, []);
+
+  const toggleDarkMode = () => {
+    const newMode = !isDarkMode;
+    setIsDarkMode(newMode);
+    localStorage.setItem('darkMode', JSON.stringify(newMode));
+    if (newMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -81,6 +105,15 @@ export const Signup: React.FC = () => {
 
   return (
     <div className="auth-container">
+      {/* Theme Toggle */}
+      <button
+        onClick={toggleDarkMode}
+        className="theme-toggle"
+        aria-label="Toggle dark mode"
+      >
+        {isDarkMode ? '☀️' : '🌙'}
+      </button>
+      
       <div className="auth-card">
         <h1>Sign Up</h1>
         <form onSubmit={handleSubmit}>

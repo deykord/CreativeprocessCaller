@@ -215,6 +215,7 @@ export const CallHistory: React.FC<Props> = React.memo(({ history }) => {
                   setSelectedRecordings(new Set());
                 } catch (e) { alert('Failed to delete all recordings'); }
               }}
+              className="px-3 py-1 bg-red-700 text-white rounded text-sm hover:bg-red-800"
             >Delete All</button>
           </div>
         </div>

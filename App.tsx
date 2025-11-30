@@ -48,12 +48,25 @@ const Dashboard: React.FC = () => {
   const [currentCall, setCurrentCall] = useState<{ prospect: Prospect; state: CallState; startTime: number } | null>(null);
   const [callerId, setCallerId] = useState<string | null>(null);
   const [callHistory, setCallHistory] = useState<CallLog[]>([]);
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const saved = localStorage.getItem('darkMode');
+    return saved ? JSON.parse(saved) : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
   const [isTwilioReady, setIsTwilioReady] = useState(false);
   const [twilioError, setTwilioError] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [twilioNumbers, setTwilioNumbers] = useState<TwilioPhoneNumber[]>([]);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
+
+  // Persist dark mode and apply to document
+  useEffect(() => {
+    localStorage.setItem('darkMode', JSON.stringify(isDarkMode));
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDarkMode]);
 
   useEffect(() => {
     const initSystem = async () => {

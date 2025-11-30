@@ -1,9 +1,28 @@
 @import "tailwindcss";
 
+/* Base dark mode styles */
+html {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-gray-50 text-gray-900;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+html.dark body {
+  @apply bg-slate-900 text-gray-100;
+}
+
 @layer components {
   /* Custom scrollbar for cleaner UI */
   ::-webkit-scrollbar {
     width: 6px;
+    height: 6px;
   }
   ::-webkit-scrollbar-track {
     background: transparent;
@@ -36,5 +55,28 @@
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: #64748b;
+  }
+
+  /* Dark mode transitions */
+  .transition-theme {
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  }
+
+  /* Focus ring styles for dark mode */
+  .dark *:focus-visible {
+    outline-color: #60a5fa;
+  }
+
+  /* Form inputs - ensure consistent dark mode appearance */
+  .dark input,
+  .dark select,
+  .dark textarea {
+    color-scheme: dark;
+  }
+
+  /* Checkbox and radio button colors in dark mode */
+  .dark input[type="checkbox"],
+  .dark input[type="radio"] {
+    accent-color: #3b82f6;
   }
 }
