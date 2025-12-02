@@ -8,9 +8,15 @@ const authMiddleware = (req, res, next) => {
       return res.status(401).json({ error: 'No token provided' });
     }
 
-    const user = authService.verifyToken(token);
-    req.userId = user.id;
-    req.user = user;
+    const decoded = authService.verifyToken(token);
+    req.userId = decoded.userId;
+    // Provide both formats for compatibility
+    req.user = {
+      id: decoded.userId,
+      userId: decoded.userId,
+      email: decoded.email,
+      role: decoded.role
+    };
     next();
   } catch (error) {
     res.status(401).json({ error: 'Unauthorized: ' + error.message });

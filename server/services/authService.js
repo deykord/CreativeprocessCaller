@@ -1,38 +1,23 @@
-const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
-const { users } = require('./mockDatabase');
+const bcrypt = require('bcrypt');
+const dbService = require('./databaseService');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 const TOKEN_EXPIRY = '24h';
 
 class AuthService {
   /**
-   * Create a new user (admin only)
+   * Create a new user with hashed password
    */
   async createUser(email, firstName, lastName, role = 'agent', password = null) {
-    // Check if user already exists
-    const existingUser = Array.from(users.values()).find(u => u.email === email);
-    if (existingUser) {
-      throw new Error('User already exists with this email');
-    }
-
-    // Create new user
-    const userId = uuidv4();
-    const userPassword = password || (email.split('@')[0] + '123'); // Default password: part_of_email+123
-    const user = {
-      id: userId,
-      email,
-      firstName,
-      lastName,
-      password: userPassword,
-      role: role || 'agent',
-      createdAt: new Date().toISOString(),
-    };
-
-    users.set(userId, user);
-    console.log(`User created: ${email}`);
-
-    return this._sanitizeUser(user);
+    // Generate default password if not provided
+    const plainPassword = password || (email.split('@')[0] + '123');
+    
+    // Hash the password before storing
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(plainPassword, saltRounds);
+    
+    return dbService.createUser(email, firstName, lastName, role, hashedPassword);
   }
 
   /**
@@ -50,69 +35,57 @@ class AuthService {
    * Get all users
    */
   async getAllUsers() {
-    return Array.from(users.values()).map(u => this._sanitizeUser(u));
+    return dbService.getAllUsers();
   }
 
   /**
    * Update user by ID
    */
   async updateUser(userId, updates) {
-    const user = users.get(userId);
-    if (!user) {
-      return null;
-    }
-
-    // Update allowed fields
-    if (updates.firstName) user.firstName = updates.firstName;
-    if (updates.lastName) user.lastName = updates.lastName;
-    if (updates.email) user.email = updates.email;
-    if (updates.role) user.role = updates.role;
-    if (updates.password) user.password = updates.password;
-    if (updates.bio !== undefined) user.bio = updates.bio;
-    if (updates.profilePicture !== undefined) user.profilePicture = updates.profilePicture;
-    user.updatedAt = new Date().toISOString();
-
-    users.set(userId, user);
-    return this._sanitizeUser(user);
+    return dbService.updateUser(userId, updates);
   }
 
   /**
    * Delete user by ID
    */
   async deleteUser(userId) {
-    if (!users.has(userId)) {
-      return false;
-    }
-    users.delete(userId);
-    return true;
+    return dbService.deleteUser(userId);
   }
 
   /**
    * Login user
    */
   async login(email, password) {
-    // Find user by email
-    const user = Array.from(users.values()).find(u => u.email === email);
+    // Find user by email (get full user with password for verification)
+    const user = await dbService.getUserByEmail(email);
     if (!user) {
       throw new Error('Invalid email or password');
     }
 
-    // Check password (in production, use bcrypt.compare)
-    if (user.password !== password) {
+    // Check password using bcrypt
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) {
       throw new Error('Invalid email or password');
     }
 
     console.log(`User logged in: ${email}`);
 
     // Generate JWT token
-    const token = jwt.sign(
-      { userId: user.id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: TOKEN_EXPIRY }
-    );
+    const token = this.generateToken(user);
+
+    // Return sanitized user (without password)
+    const sanitizedUser = {
+      id: user.id,
+      email: user.email,
+      firstName: user.first_name,
+      lastName: user.last_name,
+      role: user.role || 'agent',
+      bio: user.bio,
+      profilePicture: user.profile_picture
+    };
 
     return {
-      user: this._sanitizeUser(user),
+      user: sanitizedUser,
       token,
     };
   }
@@ -123,11 +96,7 @@ class AuthService {
   verifyToken(token) {
     try {
       const decoded = jwt.verify(token, JWT_SECRET);
-      const user = users.get(decoded.userId);
-      if (!user) {
-        throw new Error('User not found');
-      }
-      return this._sanitizeUser(user);
+      return decoded;
     } catch (error) {
       throw new Error('Invalid or expired token');
     }
@@ -137,42 +106,19 @@ class AuthService {
    * Get user by ID
    */
   async getUser(userId) {
-    const user = users.get(userId);
+    const user = await dbService.getUserById(userId);
     if (!user) {
       throw new Error('User not found');
     }
-    return this._sanitizeUser(user);
-  }
-
-  /**
-   * Remove sensitive data from user object
-   */
-  _sanitizeUser(user) {
-    const { password, ...sanitized } = user;
-    return { ...sanitized, role: user.role || 'agent' };
+    return user;
   }
 }
 
 const authService = new AuthService();
 
-// Initialize with default admin user if none exists
-const adminEmail = 'admin@creativeprocess.io';
-const adminUser = Array.from(users.values()).find(u => u.email === adminEmail);
-if (!adminUser) {
-  const adminId = uuidv4();
-  const adminPassword = 'admin123';
-  users.set(adminId, {
-    id: adminId,
-    email: adminEmail,
-    firstName: 'Admin',
-    lastName: 'User',
-    password: adminPassword,
-    role: 'admin',
-    createdAt: new Date().toISOString(),
-  });
-  console.log('Default admin user created:');
-  console.log('  Email:', adminEmail);
-  console.log('  Password:', adminPassword);
-}
+// Initialize default admin user on startup
+dbService.ensureAdminUser().catch(err => {
+  console.warn('Could not initialize admin user:', err.message);
+});
 
 module.exports = authService;

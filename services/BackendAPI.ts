@@ -3,9 +3,19 @@ import { Prospect, CallLog, TwilioPhoneNumber, AuthResponse, User, Message, Lead
 
 // Determine API URL based on environment
 const getAPIBaseURL = () => {
-  // In production, use same origin (backend serves from same domain)
-  if (typeof window !== 'undefined' && !window.location.hostname.includes('localhost')) {
-    return `${window.location.protocol}//${window.location.host}/api`;
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    const pathname = window.location.pathname;
+    
+    // Check if running on dev path (/dev/)
+    if (pathname.startsWith('/dev/') || pathname.startsWith('/dev')) {
+      return `${window.location.protocol}//${window.location.host}/dev/api`;
+    }
+    
+    // In production (non-localhost), use same origin
+    if (!hostname.includes('localhost')) {
+      return `${window.location.protocol}//${window.location.host}/api`;
+    }
   }
   // In development, use localhost:3001
   return 'http://localhost:3001/api';
@@ -330,6 +340,18 @@ export const backendAPI = {
     return res.json();
   },
 
+  async deleteUser(userId: string): Promise<void> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/auth/users/${userId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Failed to delete user');
+    }
+  },
+
   // --- Messaging ---
 
   async sendMessage(senderId: string, recipientId: string, content: string): Promise<Message> {
@@ -349,6 +371,38 @@ export const backendAPI = {
     const token = localStorage.getItem('authToken');
     const res = await fetch(`${API_BASE_URL}/messages?userId=${userId}`, {
       headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    return res.json();
+  },
+
+  async sendBugReport(data: {
+    senderId: string;
+    title: string;
+    description: string;
+    priority: 'low' | 'medium' | 'high' | 'critical';
+    attachments?: string[];
+  }): Promise<any> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/messages/bug-report`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      },
+      body: JSON.stringify(data)
+    });
+    return res.json();
+  },
+
+  async updateBugStatus(messageId: string, status: 'open' | 'in_progress' | 'resolved'): Promise<any> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/messages/${messageId}/bug-status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      },
+      body: JSON.stringify({ status })
     });
     return res.json();
   },
@@ -432,6 +486,19 @@ export const backendAPI = {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${token || ''}` }
     });
+  },
+
+  async removeProspectsFromList(listId: string, prospectIds: string[]): Promise<{ success: boolean; removedCount: number }> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/lead-lists/${listId}/prospects`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      },
+      body: JSON.stringify({ prospectIds })
+    });
+    return res.json();
   },
 
   // --- Sales Floor ---

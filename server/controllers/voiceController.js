@@ -95,11 +95,15 @@ exports.handleVoiceRequest = async (req, res) => {
 
     console.log('Making outbound call with Caller ID:', callerId, 'To:', To);
 
+    // Use absolute URLs for Twilio webhooks
+    const serverUrl = config.serverUrl || 'https://salescallagent.my';
+    
     const dial = response.dial({
       callerId: callerId,
       record: 'record-from-answer',
-      recordingStatusCallback: `/api/voice/recording`,
-      statusCallback: `/api/voice/status`,
+      recordingStatusCallback: `${serverUrl}/api/voice/recording`,
+      recordingStatusCallbackEvent: ['completed'],
+      statusCallback: `${serverUrl}/api/voice/status`,
       statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
     });
 

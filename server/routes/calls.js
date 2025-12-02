@@ -32,6 +32,7 @@ router.delete('/logs', authMiddleware, controller.deleteAllCallLogs);
 // Recording routes
 router.post('/recording/status', controller.recordingStatus);
 router.post('/recordings/upload', controller.uploadRecording);
+router.get('/recording/:id/stream', controller.streamRecording); // Stream with auth
 router.get('/recording/:id/download', controller.downloadRecording);
 router.get('/recordings/:callSid', controller.getCallRecordings);
 router.get('/recordings', controller.getAllRecordings);

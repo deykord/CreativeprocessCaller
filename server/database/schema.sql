@@ -129,6 +129,45 @@ CREATE TABLE IF NOT EXISTS lead_list_members (
     UNIQUE(list_id, prospect_id)
 );
 
+-- Lead list shares - controls which users can access which lists
+-- By default, only admins can see all lists. Agents can only see lists shared with them.
+CREATE TABLE IF NOT EXISTS lead_list_shares (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    list_id UUID NOT NULL REFERENCES lead_lists(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    can_view BOOLEAN DEFAULT true,
+    can_edit BOOLEAN DEFAULT false,
+    shared_by UUID REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(list_id, user_id)
+);
+
+-- Index for fast share lookups
+CREATE INDEX IF NOT EXISTS idx_lead_list_shares_list ON lead_list_shares(list_id);
+CREATE INDEX IF NOT EXISTS idx_lead_list_shares_user ON lead_list_shares(user_id);
+
+-- Lead list audit log - tracks all changes to lead lists (imports, edits, deletes)
+CREATE TABLE IF NOT EXISTS lead_list_audit_log (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    list_id UUID NOT NULL REFERENCES lead_lists(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id),
+    action_type VARCHAR(50) NOT NULL, -- 'created', 'imported', 'updated', 'deleted', 'lead_added', 'lead_removed', 'shared'
+    action_description TEXT NOT NULL, -- Human readable description
+    prospect_count INTEGER, -- Number of prospects in the list at this action
+    old_value TEXT, -- Previous value (for edits)
+    new_value TEXT, -- New value (for edits)
+    metadata JSONB, -- Additional context (file name, number of leads imported, etc.)
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Index for fast audit log queries
+CREATE INDEX IF NOT EXISTS idx_lead_list_audit_list ON lead_list_audit_log(list_id);
+CREATE INDEX IF NOT EXISTS idx_lead_list_audit_user ON lead_list_audit_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_lead_list_audit_action ON lead_list_audit_log(action_type);
+CREATE INDEX IF NOT EXISTS idx_lead_list_audit_created ON lead_list_audit_log(created_at DESC);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_prospects_status ON prospects(status);
 CREATE INDEX IF NOT EXISTS idx_prospects_phone ON prospects(phone);

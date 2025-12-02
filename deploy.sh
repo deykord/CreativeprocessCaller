@@ -109,6 +109,34 @@ preflight_checks() {
 }
 
 # =============================================================================
+# Run Unit Tests (Vitest)
+# =============================================================================
+
+run_unit_tests() {
+    log_header "Running Unit Tests"
+    
+    cd "$PROJECT_DIR"
+    
+    log_info "Executing vitest test suite..."
+    
+    # Run vitest tests
+    npm test 2>&1 | tee /tmp/test_output.txt
+    TEST_EXIT_CODE=${PIPESTATUS[0]}
+    
+    if [ $TEST_EXIT_CODE -eq 0 ]; then
+        # Extract test counts from output
+        PASSED=$(grep -oP '✓.*\(\d+ tests?\)' /tmp/test_output.txt | wc -l)
+        test_pass "Unit tests passed ($PASSED test files)"
+        return 0
+    else
+        test_fail "Unit tests failed"
+        log_error "Test output:"
+        tail -20 /tmp/test_output.txt
+        return 1
+    fi
+}
+
+# =============================================================================
 # Build Frontend for specific environment
 # =============================================================================
 
@@ -224,6 +252,14 @@ deploy_pr() {
     git checkout pr
     git pull origin pr 2>/dev/null || true
     
+    # Run tests before build
+    if ! run_unit_tests; then
+        log_error "Tests failed! Aborting deployment."
+        git checkout "$CURRENT_BRANCH"
+        git stash pop 2>/dev/null || true
+        exit 1
+    fi
+    
     build_frontend "pr"
     deploy_frontend "pr"
     restart_backend "pr"
@@ -254,6 +290,16 @@ deploy_dev() {
         log_info "Switching to dev branch..."
         git checkout dev
         git pull origin dev 2>/dev/null || true
+    fi
+    
+    # Run tests before build
+    if ! run_unit_tests; then
+        log_error "Tests failed! Aborting deployment."
+        if [ "$CURRENT_BRANCH" != "dev" ]; then
+            git checkout "$CURRENT_BRANCH"
+            git stash pop 2>/dev/null || true
+        fi
+        exit 1
     fi
     
     build_frontend "dev"
@@ -340,11 +386,12 @@ print_summary() {
 }
 
 # =============================================================================
-# Quick Deploy (Current Branch)
+# Quick Deploy (Current Branch - skip tests)
 # =============================================================================
 
 quick_deploy() {
-    log_header "Quick Deploy (Current Branch)"
+    log_header "Quick Deploy (Current Branch - NO TESTS)"
+    log_warning "Skipping unit tests for quick deploy"
     
     CURRENT_BRANCH=$(git branch --show-current)
     
@@ -396,20 +443,27 @@ show_help() {
     echo ""
     echo "Usage: ./deploy.sh [option]"
     echo ""
-    echo "Branch Deployment:"
+    echo "Branch Deployment (runs tests first):"
     echo -e "  ${GREEN}--pr${NC}           Deploy pr branch to salescallagent.my (production)"
     echo -e "  ${YELLOW}--dev${NC}          Deploy dev branch to salescallagent.my/dev (testing)"
     echo -e "  ${MAGENTA}--both${NC}         Deploy both pr and dev branches"
     echo ""
     echo "Quick Options:"
-    echo "  --quick, -q    Quick deploy current branch (no tests)"
+    echo "  --quick, -q    Quick deploy current branch (skips tests)"
     echo "  --test-only    Run API/DB tests only"
     echo "  --watch, -w    Watch mode - auto-deploy dev on file changes"
     echo ""
+    echo "Test Flow:"
+    echo "  1. Run unit tests (vitest)"
+    echo "  2. Build frontend"
+    echo "  3. Copy to webroot"
+    echo "  4. Restart PM2 backend"
+    echo "  5. Run API health checks"
+    echo ""
     echo "Examples:"
-    echo "  ./deploy.sh --dev      # Deploy dev branch for testing"
-    echo "  ./deploy.sh --pr       # Deploy pr branch to production"
-    echo "  ./deploy.sh --both     # Deploy both environments"
+    echo "  ./deploy.sh --dev      # Test + Deploy dev branch"
+    echo "  ./deploy.sh --pr       # Test + Deploy pr branch to production"
+    echo "  ./deploy.sh --quick    # Skip tests, quick deploy current branch"
     echo ""
     echo "URLs:"
     echo "  Production:  $FRONTEND_URL_PR"

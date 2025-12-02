@@ -484,6 +484,32 @@ class DatabaseService {
   }
 
   /**
+   * Update call log with recording URL (called from Twilio recording webhook)
+   */
+  async updateCallLogRecording(callSid, recordingUrl) {
+    try {
+      const result = await pool.query(
+        `UPDATE call_logs 
+         SET recording_url = $1
+         WHERE call_sid = $2
+         RETURNING *`,
+        [recordingUrl, callSid]
+      );
+      
+      if (result.rows.length === 0) {
+        console.log(`No call log found for CallSid: ${callSid}`);
+        return null;
+      }
+      
+      console.log(`Recording URL saved for call ${callSid}`);
+      return result.rows[0];
+    } catch (error) {
+      console.error('Error saving recording URL:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Create a new call log entry
    */
   async createCallLog(callData) {
@@ -713,6 +739,664 @@ class DatabaseService {
     } catch (error) {
       console.error('Error deleting all call logs:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Lead List Management
+   */
+  async createLeadList(name, description, prospectIds, createdBy) {
+    try {
+      const result = await pool.query(
+        `INSERT INTO lead_lists (name, description, created_by)
+        VALUES ($1, $2, $3)
+        RETURNING *`,
+        [name, description || '', createdBy]
+      );
+
+      const list = result.rows[0];
+
+      // Add prospects to the list
+      if (prospectIds && prospectIds.length > 0) {
+        for (const prospectId of prospectIds) {
+          try {
+            await pool.query(
+              `INSERT INTO lead_list_members (list_id, prospect_id)
+              VALUES ($1, $2)
+              ON CONFLICT DO NOTHING`,
+              [list.id, prospectId]
+            );
+          } catch (e) {
+            console.warn(`Failed to add prospect ${prospectId} to list:`, e);
+          }
+        }
+      }
+
+      // Log the list creation
+      await this.logLeadListAudit(list.id, createdBy, 'created', 
+        `Created lead list "${name}" with ${prospectIds?.length || 0} prospects`,
+        prospectIds?.length || 0,
+        { fileName: 'manual' }
+      );
+
+      return {
+        ...list,
+        prospectIds,
+        prospectCount: prospectIds?.length || 0
+      };
+    } catch (error) {
+      console.error('Error creating lead list:', error);
+      throw error;
+    }
+  }
+
+  async getLeadLists(userId) {
+    try {
+      // First, get the user's role
+      const userResult = await pool.query(
+        'SELECT role FROM users WHERE id = $1',
+        [userId]
+      );
+      
+      const userRole = userResult.rows[0]?.role || 'agent';
+      const isAdmin = userRole === 'admin';
+
+      let result;
+      
+      if (isAdmin) {
+        // Admins can see ALL lead lists
+        result = await pool.query(
+          `SELECT l.*, 
+                  COUNT(DISTINCT lm.prospect_id) as prospect_count,
+                  CASE WHEN l.created_by = $1 THEN true ELSE false END as is_owner,
+                  u.first_name as creator_first_name,
+                  u.last_name as creator_last_name,
+                  true as can_view,
+                  true as can_edit
+          FROM lead_lists l
+          LEFT JOIN lead_list_members lm ON l.id = lm.list_id
+          LEFT JOIN users u ON l.created_by = u.id
+          GROUP BY l.id, u.first_name, u.last_name
+          ORDER BY l.created_at DESC`,
+          [userId]
+        );
+      } else {
+        // Non-admins can only see:
+        // 1. Lists they created
+        // 2. Lists shared with them
+        result = await pool.query(
+          `SELECT l.*, 
+                  COUNT(DISTINCT lm.prospect_id) as prospect_count,
+                  CASE WHEN l.created_by = $1 THEN true ELSE false END as is_owner,
+                  u.first_name as creator_first_name,
+                  u.last_name as creator_last_name,
+                  COALESCE(s.can_view, l.created_by = $1) as can_view,
+                  COALESCE(s.can_edit, l.created_by = $1) as can_edit
+          FROM lead_lists l
+          LEFT JOIN lead_list_members lm ON l.id = lm.list_id
+          LEFT JOIN users u ON l.created_by = u.id
+          LEFT JOIN lead_list_shares s ON l.id = s.list_id AND s.user_id = $1
+          WHERE l.created_by = $1 OR s.user_id = $1
+          GROUP BY l.id, u.first_name, u.last_name, s.can_view, s.can_edit
+          ORDER BY l.created_at DESC`,
+          [userId]
+        );
+      }
+
+      // Fetch prospects for each list in a single query
+      const listIds = result.rows.map(l => l.id);
+      
+      let prospectMap = {};
+      if (listIds.length > 0) {
+        const prospectResult = await pool.query(
+          `SELECT list_id, prospect_id FROM lead_list_members WHERE list_id = ANY($1)`,
+          [listIds]
+        );
+        
+        // Group prospect IDs by list ID
+        prospectResult.rows.forEach(row => {
+          if (!prospectMap[row.list_id]) {
+            prospectMap[row.list_id] = [];
+          }
+          prospectMap[row.list_id].push(row.prospect_id);
+        });
+      }
+      
+      // Map results with prospect IDs
+      const lists = result.rows.map(list => ({
+        ...list,
+        prospectIds: prospectMap[list.id] || [],
+        isOwner: list.is_owner,
+        canView: list.can_view !== false,
+        canEdit: list.can_edit === true || list.is_owner,
+        creatorName: list.creator_first_name && list.creator_last_name 
+          ? `${list.creator_first_name} ${list.creator_last_name}`
+          : 'Unknown'
+      }));
+
+      return lists;
+    } catch (error) {
+      console.error('Error getting lead lists:', error);
+      throw error;
+    }
+  }
+
+  async getLeadList(id) {
+    try {
+      const listResult = await pool.query(
+        'SELECT * FROM lead_lists WHERE id = $1',
+        [id]
+      );
+
+      if (listResult.rows.length === 0) {
+        return null;
+      }
+
+      const list = listResult.rows[0];
+
+      const prospectResult = await pool.query(
+        `SELECT prospect_id FROM lead_list_members WHERE list_id = $1`,
+        [id]
+      );
+
+      return {
+        id: list.id,
+        name: list.name,
+        description: list.description,
+        createdBy: list.created_by, // Convert snake_case to camelCase
+        createdAt: list.created_at,
+        updatedAt: list.updated_at,
+        prospectIds: prospectResult.rows.map(r => r.prospect_id),
+        prospectCount: prospectResult.rows.length
+      };
+    } catch (error) {
+      console.error('Error getting lead list:', error);
+      throw error;
+    }
+  }
+
+  async updateLeadList(id, updates, userId) {
+    try {
+      const list = await this.getLeadList(id);
+      if (!list) {
+        throw new Error('Lead list not found');
+      }
+
+      const { name, description, prospectIds } = updates;
+
+      // Update list metadata
+      if (name || description !== undefined) {
+        const updateFields = [];
+        const updateValues = [];
+        let paramCount = 1;
+
+        if (name) {
+          updateFields.push(`name = $${paramCount}`);
+          updateValues.push(name);
+          paramCount++;
+        }
+        if (description !== undefined) {
+          updateFields.push(`description = $${paramCount}`);
+          updateValues.push(description);
+          paramCount++;
+        }
+
+        updateValues.push(id);
+
+        await pool.query(
+          `UPDATE lead_lists SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
+          WHERE id = $${paramCount}`,
+          updateValues
+        );
+      }
+
+      // Update prospects if provided
+      if (prospectIds) {
+        // Remove old members
+        await pool.query(
+          'DELETE FROM lead_list_members WHERE list_id = $1',
+          [id]
+        );
+
+        // Add new members
+        for (const prospectId of prospectIds) {
+          try {
+            await pool.query(
+              `INSERT INTO lead_list_members (list_id, prospect_id)
+              VALUES ($1, $2)
+              ON CONFLICT DO NOTHING`,
+              [id, prospectId]
+            );
+          } catch (e) {
+            console.warn(`Failed to add prospect ${prospectId} to list:`, e);
+          }
+        }
+
+        // Log the update
+        await this.logLeadListAudit(id, userId, 'updated', 
+          `Updated lead list with ${prospectIds.length} prospects`,
+          prospectIds.length
+        );
+      }
+
+      return this.getLeadList(id);
+    } catch (error) {
+      console.error('Error updating lead list:', error);
+      throw error;
+    }
+  }
+
+  async deleteLeadList(id) {
+    try {
+      // Log the deletion before deleting
+      const list = await this.getLeadList(id);
+      if (list) {
+        await this.logLeadListAudit(id, null, 'deleted', 
+          `Deleted lead list "${list.name}" with ${list.prospectCount} prospects`,
+          list.prospectCount
+        );
+      }
+
+      const result = await pool.query(
+        'DELETE FROM lead_lists WHERE id = $1 RETURNING *',
+        [id]
+      );
+
+      return result.rows[0];
+    } catch (error) {
+      console.error('Error deleting lead list:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Lead List Audit Logging
+   */
+  async logLeadListAudit(listId, userId, actionType, actionDescription, prospectCount = 0, metadata = {}) {
+    try {
+      await pool.query(
+        `INSERT INTO lead_list_audit_log 
+        (list_id, user_id, action_type, action_description, prospect_count, metadata)
+        VALUES ($1, $2, $3, $4, $5, $6)`,
+        [listId, userId, actionType, actionDescription, prospectCount, JSON.stringify(metadata)]
+      );
+    } catch (error) {
+      console.error('Error logging lead list audit:', error);
+      // Don't throw - audit logging shouldn't break the main operation
+    }
+  }
+
+  async getLeadListAuditLog(listId, limit = 50) {
+    try {
+      const result = await pool.query(
+        `SELECT al.*, u.first_name, u.last_name, u.email
+        FROM lead_list_audit_log al
+        LEFT JOIN users u ON al.user_id = u.id
+        WHERE al.list_id = $1
+        ORDER BY al.created_at DESC
+        LIMIT $2`,
+        [listId, limit]
+      );
+
+      return result.rows;
+    } catch (error) {
+      console.error('Error getting lead list audit log:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check if a user can access a lead list
+   */
+  async checkUserListAccess(userId, listId) {
+    try {
+      // Check if user is the creator
+      const list = await this.getLeadList(listId);
+      if (list && list.createdBy === userId) {
+        return { hasAccess: true, canEdit: true, isOwner: true };
+      }
+      
+      // Check for explicit share permissions
+      const result = await pool.query(
+        `SELECT can_view, can_edit FROM lead_list_shares 
+         WHERE list_id = $1 AND user_id = $2`,
+        [listId, userId]
+      );
+      
+      if (result.rows.length > 0) {
+        const perm = result.rows[0];
+        return { 
+          hasAccess: perm.can_view, 
+          canEdit: perm.can_edit, 
+          isOwner: false 
+        };
+      }
+      
+      return { hasAccess: false, canEdit: false, isOwner: false };
+    } catch (error) {
+      console.error('Error checking user list access:', error);
+      return { hasAccess: false, canEdit: false, isOwner: false };
+    }
+  }
+
+  /**
+   * Share a lead list with a user
+   */
+  async shareLeadList(listId, targetUserId, sharedBy, canView = true, canEdit = false) {
+    try {
+      const result = await pool.query(
+        `INSERT INTO lead_list_shares (list_id, user_id, can_view, can_edit, shared_by)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (list_id, user_id) 
+         DO UPDATE SET can_view = $3, can_edit = $4
+         RETURNING *`,
+        [listId, targetUserId, canView, canEdit, sharedBy]
+      );
+
+      // Log the share action
+      await this.logLeadListAudit(listId, sharedBy, 'shared', 
+        `Shared list with user ${targetUserId}`,
+        0,
+        { targetUserId, canView, canEdit }
+      );
+
+      return result.rows[0];
+    } catch (error) {
+      console.error('Error sharing lead list:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Remove sharing for a lead list
+   */
+  async unshareLeadList(listId, targetUserId, removedBy) {
+    try {
+      const result = await pool.query(
+        `DELETE FROM lead_list_shares 
+         WHERE list_id = $1 AND user_id = $2
+         RETURNING *`,
+        [listId, targetUserId]
+      );
+
+      // Log the unshare action
+      await this.logLeadListAudit(listId, removedBy, 'unshared', 
+        `Removed sharing with user ${targetUserId}`,
+        0,
+        { targetUserId }
+      );
+
+      return result.rows[0];
+    } catch (error) {
+      console.error('Error unsharing lead list:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all shares for a lead list
+   */
+  async getLeadListShares(listId) {
+    try {
+      const result = await pool.query(
+        `SELECT s.*, u.first_name, u.last_name, u.email
+         FROM lead_list_shares s
+         JOIN users u ON s.user_id = u.id
+         WHERE s.list_id = $1
+         ORDER BY s.created_at DESC`,
+        [listId]
+      );
+
+      return result.rows.map(row => ({
+        id: row.id,
+        listId: row.list_id,
+        userId: row.user_id,
+        canView: row.can_view,
+        canEdit: row.can_edit,
+        sharedBy: row.shared_by,
+        createdAt: row.created_at,
+        user: {
+          id: row.user_id,
+          firstName: row.first_name,
+          lastName: row.last_name,
+          email: row.email
+        }
+      }));
+    } catch (error) {
+      console.error('Error getting lead list shares:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete multiple prospects from a lead list
+   */
+  async removeProspectsFromList(listId, prospectIds, userId) {
+    try {
+      const result = await pool.query(
+        `DELETE FROM lead_list_members 
+         WHERE list_id = $1 AND prospect_id = ANY($2)
+         RETURNING prospect_id`,
+        [listId, prospectIds]
+      );
+
+      // Log the removal
+      await this.logLeadListAudit(listId, userId, 'leads_removed', 
+        `Removed ${result.rowCount} leads from list`,
+        result.rowCount,
+        { removedProspectIds: prospectIds }
+      );
+
+      return result.rowCount;
+    } catch (error) {
+      console.error('Error removing prospects from list:', error);
+      throw error;
+    }
+  }
+
+  // ==================== USER MANAGEMENT ====================
+
+  /**
+   * Create a new user
+   */
+  async createUser(email, firstName, lastName, role = 'agent', hashedPassword) {
+    try {
+      // Check if user already exists
+      const existing = await pool.query(
+        'SELECT id FROM users WHERE email = $1',
+        [email]
+      );
+
+      if (existing.rows.length > 0) {
+        throw new Error('User already exists with this email');
+      }
+
+      // Password should already be hashed by authService
+      if (!hashedPassword) {
+        throw new Error('Hashed password is required');
+      }
+
+      const result = await pool.query(
+        `INSERT INTO users (email, password, first_name, last_name, role)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [email, hashedPassword, firstName, lastName, role]
+      );
+
+      console.log(`User created: ${email}`);
+      return this._sanitizeUser(result.rows[0]);
+    } catch (error) {
+      console.error('Error creating user:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get user by ID
+   */
+  async getUserById(userId) {
+    try {
+      const result = await pool.query(
+        'SELECT * FROM users WHERE id = $1',
+        [userId]
+      );
+      
+      if (result.rows.length === 0) {
+        return null;
+      }
+      
+      return this._sanitizeUser(result.rows[0]);
+    } catch (error) {
+      console.error('Error getting user:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get user by email
+   */
+  async getUserByEmail(email) {
+    try {
+      const result = await pool.query(
+        'SELECT * FROM users WHERE email = $1',
+        [email]
+      );
+      
+      return result.rows[0] || null;
+    } catch (error) {
+      console.error('Error getting user by email:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all users
+   */
+  async getAllUsers() {
+    try {
+      const result = await pool.query(
+        'SELECT * FROM users ORDER BY created_at DESC'
+      );
+      
+      return result.rows.map(u => this._sanitizeUser(u));
+    } catch (error) {
+      console.error('Error getting all users:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update user
+   */
+  async updateUser(userId, updates) {
+    try {
+      const current = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+      if (current.rows.length === 0) {
+        return null;
+      }
+
+      const fieldMapping = {
+        firstName: 'first_name',
+        lastName: 'last_name',
+        email: 'email',
+        role: 'role',
+        password: 'password',
+        bio: 'bio',
+        profilePicture: 'profile_picture',
+        isActive: 'is_active'
+      };
+
+      const fields = [];
+      const values = [];
+      let paramCount = 1;
+
+      Object.keys(updates).forEach(key => {
+        if (updates[key] !== undefined) {
+          const dbKey = fieldMapping[key] || key;
+          fields.push(`${dbKey} = $${paramCount}`);
+          values.push(updates[key]);
+          paramCount++;
+        }
+      });
+
+      if (fields.length === 0) {
+        return this._sanitizeUser(current.rows[0]);
+      }
+
+      values.push(userId);
+      const result = await pool.query(
+        `UPDATE users SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $${paramCount}
+         RETURNING *`,
+        values
+      );
+
+      return this._sanitizeUser(result.rows[0]);
+    } catch (error) {
+      console.error('Error updating user:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete user
+   */
+  async deleteUser(userId) {
+    try {
+      const result = await pool.query(
+        'DELETE FROM users WHERE id = $1 RETURNING *',
+        [userId]
+      );
+      
+      return result.rows.length > 0;
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Remove sensitive data from user object
+   */
+  _sanitizeUser(user) {
+    if (!user) return null;
+    const { password, ...sanitized } = user;
+    return {
+      id: user.id,
+      email: user.email,
+      firstName: user.first_name,
+      lastName: user.last_name,
+      role: user.role || 'agent',
+      bio: user.bio,
+      profilePicture: user.profile_picture,
+      isActive: user.is_active,
+      createdAt: user.created_at,
+      updatedAt: user.updated_at
+    };
+  }
+
+  /**
+   * Initialize default admin user if none exists
+   */
+  async ensureAdminUser() {
+    try {
+      const adminEmail = 'admin@creativeprocess.io';
+      const existing = await this.getUserByEmail(adminEmail);
+      
+      if (!existing) {
+        await pool.query(
+          `INSERT INTO users (email, password, first_name, last_name, role)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (email) DO NOTHING`,
+          [adminEmail, 'admin123', 'Admin', 'User', 'admin']
+        );
+        console.log('Default admin user created:');
+        console.log('  Email:', adminEmail);
+        console.log('  Password: admin123');
+      }
+    } catch (error) {
+      console.error('Error ensuring admin user:', error);
+      // Don't throw - this is initialization code
     }
   }
 }

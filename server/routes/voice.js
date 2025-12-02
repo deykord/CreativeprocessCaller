@@ -1,9 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/voiceController');
+const callController = require('../controllers/callController');
 
 router.post('/', controller.handleVoiceRequest);
 router.post('/status', controller.handleCallStatus);
+router.post('/recording', callController.recordingStatus); // Twilio recording webhook
 router.get('/incoming-numbers', controller.handleIncomingNumbers);
 router.get('/numbers', controller.handleTwilioNumbers);
 

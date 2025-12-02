@@ -4,16 +4,17 @@ import { DashboardStats } from './components/DashboardStats';
 import { ProspectTable } from './components/ProspectTable';
 import { ActiveCallInterface } from './components/ActiveCallInterface';
 import { ManualDialer } from './components/ManualDialer';
-import PowerDialer from './components/PowerDialerOrum';
+import PowerDialer from './components/PowerDialer';
 import { Settings } from './components/Settings';
 import CallHistoryAdvanced from './components/CallHistoryAdvanced';
 import { Header } from './components/Header';
 import { Login } from './components/Login';
 import UserProfile from './components/UserProfile';
 import { SalesFloor } from './components/SalesFloor';
+import Messages from './components/Messages';
 import { Prospect, CallState, AgentStats, CallLog, User, TwilioPhoneNumber } from './types';
 import { INITIAL_PROSPECTS, INITIAL_STATS } from './constants';
-import { LayoutGrid, Users, Phone, Settings as SettingsIcon, LogOut, Bell, History, Zap, Keyboard, Sun, Moon, List, Activity } from 'lucide-react';
+import { LayoutGrid, Users, Phone, Settings as SettingsIcon, LogOut, Bell, History, Zap, Keyboard, Sun, Moon, List, Activity, MessageSquare } from 'lucide-react';
 
 // SERVICES
 import { liveTwilioService } from './services/LiveTwilioService';
@@ -35,7 +36,7 @@ const USE_BACKEND = true;
 const activeTwilioService = liveTwilioService;
 
 
-type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'history' | 'settings' | 'team-management' | 'profile' | 'lead-lists' | 'sales-floor';
+type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'history' | 'settings' | 'team-management' | 'profile' | 'lead-lists' | 'sales-floor' | 'messages';
 
 const Dashboard: React.FC = () => {
     const [powerDialerDispositionSaved, setPowerDialerDispositionSaved] = useState(false);
@@ -55,16 +56,19 @@ const Dashboard: React.FC = () => {
   const [twilioNumbers, setTwilioNumbers] = useState<TwilioPhoneNumber[]>([]);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
   const [openImportModal, setOpenImportModal] = useState(false);
+  const [stuckCallError, setStuckCallError] = useState<string | null>(null);
 
   // Listen for navigation events from PowerDialer
   useEffect(() => {
     const handleNavigate = (e: CustomEvent) => {
       if (e.detail === 'lead-lists') {
         setCurrentView('lead-lists');
+      } else if (e.detail === 'manual-dialer') {
+        setCurrentView('manual-dialer');
       }
     };
     const handleOpenImport = () => {
-      setCurrentView('lead-lists');
+      // Open import modal in current view (stay in PowerDialer, don't navigate)
       setOpenImportModal(true);
     };
     
@@ -160,7 +164,9 @@ const Dashboard: React.FC = () => {
           err?.message?.toLowerCase().includes('already') ||
           err?.code === 31002 || // Device is currently disconnecting
           err?.code === 31003) { // Device is currently connecting to a call
-        errorMessage = "⚠️ Please wait - a call is already in progress. Complete the current call before dialing again.";
+        // Show sticky banner instead of alert - don't repeat
+        setStuckCallError("A call is already in progress. End the current call before dialing again.");
+        return; // Don't clear currentCall or trigger disposition
       } else if (err?.code === 31204) { // Invalid phone number
         errorMessage = "❌ Invalid phone number format. Please check the number and try again.";
       } else if (err?.code === 20003) { // Auth error
@@ -197,6 +203,18 @@ const Dashboard: React.FC = () => {
 
   const handleHangup = () => {
     activeTwilioService.disconnect();
+  };
+
+  const handleForceEndCall = () => {
+    // Force disconnect any active call and clear states
+    try {
+      activeTwilioService.disconnect();
+    } catch (e) {
+      console.error('Error disconnecting:', e);
+    }
+    setCurrentCall(null);
+    setStuckCallError(null);
+    setPowerDialerDispositionSaved(true);
   };
 
   const handleSaveDisposition = async (outcome: any, note: string) => {
@@ -326,7 +344,8 @@ const Dashboard: React.FC = () => {
     reader.readAsText(file);
   };
 
-  const powerDialerQueue = prospects.filter(p => p.status === 'New');
+  // PowerDialer queue: start empty, will be filled when user selects a list
+  const powerDialerQueue: Prospect[] = [];
 
   const handleDeleteProspect = async (id: string) => {
     try {
@@ -351,6 +370,23 @@ const Dashboard: React.FC = () => {
   };
 
   const handleLogout = async () => {
+    // Reset all app state before logout
+    setCurrentCall(null);
+    setProspects([]);
+    setCallHistory([]);
+    setUser(null);
+    setIsTwilioReady(false);
+    setPowerDialerDispositionSaved(false);
+    setPowerDialerPausedByWrapUp(false);
+    
+    // Revoke microphone permissions by stopping any active streams
+    try {
+      const streams = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streams.getTracks().forEach(track => track.stop());
+    } catch (e) {
+      // Ignore errors - user may have already denied permission
+    }
+    
     await backendAPI.logout();
     navigate('/login');
   };
@@ -399,6 +435,7 @@ const Dashboard: React.FC = () => {
         );
       case 'power-dialer':
           return <PowerDialer 
+            key={user?.id || 'no-user'}  // Force remount when user changes
             queue={powerDialerQueue} 
             onCall={handleCall} 
             disabled={!isTwilioReady} 
@@ -408,6 +445,9 @@ const Dashboard: React.FC = () => {
             onUpdateProspect={handleUpdateProspect}
             powerDialerPaused={powerDialerPausedByWrapUp}
             setPowerDialerPaused={setPowerDialerPausedByWrapUp}
+            openImportModal={openImportModal}
+            onImportModalClose={() => setOpenImportModal(false)}
+            currentUser={user}
           />;
       case 'manual-dialer':
         return <ManualDialer onCall={handleManualCall} disabled={!isTwilioReady} />;
@@ -441,6 +481,8 @@ const Dashboard: React.FC = () => {
         </Suspense>;
       case 'sales-floor':
         return <SalesFloor teamMembers={teamMembers} />;
+      case 'messages':
+        return <Messages currentUser={user} />;
       default:
         return <div>View not found</div>;
     }
@@ -451,6 +493,24 @@ const Dashboard: React.FC = () => {
       {twilioError && (
         <div className="fixed top-0 left-0 w-full bg-red-600 text-white text-center py-2 z-50">
           {twilioError}
+        </div>
+      )}
+      {stuckCallError && (
+        <div className="fixed top-0 left-0 w-full bg-amber-500 text-white text-center py-3 z-50 flex items-center justify-center gap-4 shadow-lg">
+          <span className="font-medium">⚠️ {stuckCallError}</span>
+          <button
+            onClick={handleForceEndCall}
+            className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-md text-sm font-medium flex items-center gap-2 transition-colors"
+          >
+            <Phone size={16} className="rotate-[135deg]" />
+            End Current Call
+          </button>
+          <button
+            onClick={() => setStuckCallError(null)}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-md text-sm transition-colors"
+          >
+            ✕ Dismiss
+          </button>
         </div>
       )}
       <div className="flex h-screen bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-gray-100 font-sans transition-colors duration-200">
@@ -504,6 +564,12 @@ const Dashboard: React.FC = () => {
               onClick={() => setCurrentView('lead-lists')} 
             />
             <NavItem 
+              icon={<MessageSquare size={20} />} 
+              label="Messages" 
+              active={currentView === 'messages'} 
+              onClick={() => setCurrentView('messages')} 
+            />
+            <NavItem 
               icon={<SettingsIcon size={20} />} 
               label="Settings" 
               active={currentView === 'settings'} 
@@ -543,6 +609,7 @@ const Dashboard: React.FC = () => {
             onCallerIdChange={setCallerId}
             twilioNumbers={twilioNumbers}
             onViewProfile={() => setCurrentView('profile')}
+            onLogout={handleLogout}
             onStartSession={() => setCurrentView('power-dialer')}
             showStartSession={currentView !== 'power-dialer'}
           />
@@ -572,6 +639,7 @@ const Dashboard: React.FC = () => {
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [authKey, setAuthKey] = useState<string>('');
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -579,8 +647,11 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
       if (token) {
         const user = await backendAPI.getCurrentUser();
         setIsAuthenticated(!!user);
+        // Set a unique key based on token to force remount on re-login
+        setAuthKey(token.slice(-10));
       } else {
         setIsAuthenticated(false);
+        setAuthKey('');
       }
     };
     checkAuth();
@@ -590,7 +661,8 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
     return <div className="flex items-center justify-center h-screen">Loading...</div>;
   }
 
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" />;
+  // Use authKey to force Dashboard remount when user re-authenticates
+  return isAuthenticated ? <div key={authKey}>{children}</div> : <Navigate to="/login" />;
 };
 
 const App: React.FC = () => {

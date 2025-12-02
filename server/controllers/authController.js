@@ -1,8 +1,9 @@
 const authService = require('../services/authService');
+const dbService = require('../services/databaseService');
 
 exports.createUser = async (req, res) => {
   try {
-    const { email, firstName, lastName, role } = req.body;
+    const { email, firstName, lastName, role, password } = req.body;
 
     // Validation
     if (!email || !firstName || !lastName) {
@@ -15,8 +16,8 @@ exports.createUser = async (req, res) => {
       return res.status(403).json({ success: false, error: 'Only admins can create users' });
     }
 
-    const user = await authService.createUser(email, firstName, lastName, role || 'agent');
-    const defaultPassword = email.split('@')[0] + '123';
+    const user = await authService.createUser(email, firstName, lastName, role || 'agent', password);
+    const defaultPassword = password ? '(custom password)' : (email.split('@')[0] + '123');
 
     res.json({
       success: true,
@@ -59,7 +60,8 @@ exports.verifyToken = async (req, res) => {
       return res.status(401).json({ error: 'No token provided' });
     }
 
-    const user = authService.verifyToken(token);
+    const decoded = authService.verifyToken(token);
+    const user = await authService.getUser(decoded.userId);
     res.json({ success: true, user });
   } catch (error) {
     console.error('Token verification error:', error);
@@ -83,20 +85,15 @@ exports.updateProfile = async (req, res) => {
     const userId = req.userId; // Set by auth middleware
     const { firstName, lastName, email, bio, profilePicture, workHours } = req.body;
 
-    const user = await authService.getUser(userId);
-    
-    // Update user fields
-    if (firstName) user.firstName = firstName;
-    if (lastName) user.lastName = lastName;
-    if (email) user.email = email;
-    if (bio !== undefined) user.bio = bio;
-    if (profilePicture !== undefined) user.profilePicture = profilePicture;
-    if (workHours) user.workHours = workHours;
-    user.updatedAt = new Date().toISOString();
+    const updates = {};
+    if (firstName) updates.firstName = firstName;
+    if (lastName) updates.lastName = lastName;
+    if (email) updates.email = email;
+    if (bio !== undefined) updates.bio = bio;
+    if (profilePicture !== undefined) updates.profilePicture = profilePicture;
+    if (workHours) updates.workHours = JSON.stringify(workHours);
 
-    // Update in storage
-    const { users } = require('../services/mockDatabase');
-    users.set(userId, user);
+    const user = await dbService.updateUser(userId, updates);
 
     res.json({ success: true, user });
   } catch (error) {
@@ -107,8 +104,7 @@ exports.updateProfile = async (req, res) => {
 
 exports.getTeamMembers = async (req, res) => {
   try {
-    const { users } = require('../services/mockDatabase');
-    const teamMembers = Array.from(users.values());
+    const teamMembers = await dbService.getAllUsers();
     res.json(teamMembers);
   } catch (error) {
     console.error('Get team members error:', error);

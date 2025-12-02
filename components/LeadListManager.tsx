@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { LeadList, LeadListPermission, User, Prospect } from '../types';
 import { backendAPI } from '../services/BackendAPI';
-import { Plus, Trash2, Share2, Eye, Edit, Lock, Users, Upload, FileText, CheckCircle, X, ArrowRight, ArrowLeft, AlertTriangle, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Share2, Eye, Edit, Lock, Users, Upload, FileText, CheckCircle, X, ArrowRight, ArrowLeft, AlertTriangle, Loader2, Check, Square, CheckSquare } from 'lucide-react';
 
 // Define prospect fields that can be mapped
 const PROSPECT_FIELDS = [
@@ -39,6 +39,11 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
   const [isDeleting, setIsDeleting] = useState(false);
   const [isMounted, setIsMounted] = useState(true);
 
+  // Bulk selection state
+  const [expandedListId, setExpandedListId] = useState<string | null>(null);
+  const [selectedLeads, setSelectedLeads] = useState<Map<string, Set<string>>>(new Map()); // listId -> Set of prospectIds
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
   const [newListData, setNewListData] = useState({
     name: '',
     description: '',
@@ -71,6 +76,21 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
   const [importStatus, setImportStatus] = useState<'idle' | 'importing' | 'success' | 'error'>('idle');
   const [importResults, setImportResults] = useState<{ success: number; failed: number; errors: string[] }>({ success: 0, failed: 0, errors: [] });
 
+  // Duplicate Detection State
+  interface DuplicateRow {
+    rowIndex: number;
+    prospect: Partial<Prospect>;
+    duplicateType: 'internal' | 'database';
+    duplicateInfo?: {
+      field: 'phone' | 'email';
+      conflictingValue: string;
+      existingRecord?: Prospect;
+    };
+    selected: boolean;
+  }
+  const [duplicates, setDuplicates] = useState<DuplicateRow[]>([]);
+  const [allDuplicatesSelected, setAllDuplicatesSelected] = useState(false);
+
   // Load lead lists
   useEffect(() => {
     setIsMounted(true);
@@ -98,24 +118,8 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
       if (!isMounted) return; // Don't update state if component unmounted
 
       setLeadLists(lists);
-
-      // Load permissions for each list
-      const permissionsMap = new Map<string, LeadListPermission[]>();
-      for (const list of lists) {
-        try {
-          const perms = await backendAPI.getLeadListPermissions(list.id);
-          if (isMounted) {
-            permissionsMap.set(list.id, perms);
-          }
-        } catch (err) {
-          // List creator may not have permission to view others' permissions
-          permissionsMap.set(list.id, []);
-        }
-      }
-      
-      if (isMounted) {
-        setPermissions(permissionsMap);
-      }
+      // Note: Permissions are now fetched only when user clicks "Share" button
+      // This eliminates the N+1 request problem
     } catch (err) {
       console.error('Failed to load lead lists:', err);
       if (isMounted) {
@@ -125,6 +129,25 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
       if (isMounted) {
         setLoading(false);
       }
+    }
+  };
+
+  // Load permissions only when opening the share modal
+  const loadListPermissions = async (listId: string) => {
+    try {
+      const perms = await backendAPI.getLeadListPermissions(listId);
+      setPermissions(prev => {
+        const newMap = new Map(prev);
+        newMap.set(listId, perms);
+        return newMap;
+      });
+    } catch (err) {
+      console.error('Failed to load permissions:', err);
+      setPermissions(prev => {
+        const newMap = new Map(prev);
+        newMap.set(listId, []);
+        return newMap;
+      });
     }
   };
 
@@ -233,6 +256,93 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
     }
   };
 
+  // Bulk selection helpers
+  const toggleLeadSelection = (listId: string, prospectId: string) => {
+    setSelectedLeads(prev => {
+      const newMap = new Map(prev);
+      const listSelections = new Set(newMap.get(listId) || []);
+      
+      if (listSelections.has(prospectId)) {
+        listSelections.delete(prospectId);
+      } else {
+        listSelections.add(prospectId);
+      }
+      
+      newMap.set(listId, listSelections);
+      return newMap;
+    });
+  };
+
+  const selectAllLeadsInList = (listId: string, prospectIds: string[]) => {
+    setSelectedLeads(prev => {
+      const newMap = new Map(prev);
+      newMap.set(listId, new Set(prospectIds));
+      return newMap;
+    });
+  };
+
+  const deselectAllLeadsInList = (listId: string) => {
+    setSelectedLeads(prev => {
+      const newMap = new Map(prev);
+      newMap.set(listId, new Set());
+      return newMap;
+    });
+  };
+
+  const getSelectedCount = (listId: string): number => {
+    return selectedLeads.get(listId)?.size || 0;
+  };
+
+  const isLeadSelected = (listId: string, prospectId: string): boolean => {
+    return selectedLeads.get(listId)?.has(prospectId) || false;
+  };
+
+  const handleBulkDeleteLeads = async (listId: string) => {
+    const selectedIds = Array.from(selectedLeads.get(listId) || []);
+    if (selectedIds.length === 0) {
+      setError('No leads selected');
+      return;
+    }
+
+    if (!window.confirm(`Remove ${selectedIds.length} lead(s) from this list?`)) return;
+
+    try {
+      setIsBulkDeleting(true);
+      setError(null);
+      
+      const result = await backendAPI.removeProspectsFromList(listId, selectedIds);
+      
+      if (isMounted) {
+        setSuccess(`${result.removedCount} lead(s) removed from list`);
+        
+        // Update local state
+        setLeadLists(prev => prev.map(l => {
+          if (l.id === listId) {
+            const updatedProspectIds = l.prospectIds.filter(id => !selectedIds.includes(id));
+            return { ...l, prospectIds: updatedProspectIds, prospectCount: updatedProspectIds.length };
+          }
+          return l;
+        }));
+        
+        // Clear selections for this list
+        deselectAllLeadsInList(listId);
+        
+        setTimeout(() => {
+          if (isMounted) setSuccess(null);
+        }, 3000);
+      }
+    } catch (err) {
+      console.error('Failed to bulk delete leads:', err);
+      if (isMounted) {
+        setError('Failed to remove leads from list');
+      }
+    } finally {
+      if (isMounted) {
+        setIsBulkDeleting(false);
+      }
+    }
+  };
+
   const handleAddPermission = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedList || !permissionData.targetUserId) {
@@ -249,29 +359,42 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
       );
 
       setPermissionData({ targetUserId: '', canView: true, canEdit: false });
-      setShowPermissionsModal(false);
-      await loadLeadLists();
+      setSuccess('Permission added successfully');
+      // Refresh permissions for this list
+      await loadListPermissions(selectedList.id);
+      
+      setTimeout(() => {
+        if (isMounted) setSuccess(null);
+      }, 3000);
     } catch (err) {
       console.error('Failed to add permission:', err);
       setError('Failed to add permission');
     }
   };
 
-  const handleRemovePermission = async (listId: string, permissionId: string) => {
-    if (!window.confirm('Remove this permission?')) return;
+  const handleRemovePermission = async (listId: string, userId: string) => {
+    if (!window.confirm('Remove this user\'s access?')) return;
 
     try {
-      await backendAPI.removeLeadListPermission(listId, permissionId);
-      await loadLeadLists();
+      await backendAPI.removeLeadListPermission(listId, userId);
+      setSuccess('Permission removed');
+      // Refresh permissions for this list
+      await loadListPermissions(listId);
+      
+      setTimeout(() => {
+        if (isMounted) setSuccess(null);
+      }, 3000);
     } catch (err) {
       console.error('Failed to remove permission:', err);
       setError('Failed to remove permission');
     }
   };
 
-  const openPermissionsModal = (list: LeadList) => {
+  const openPermissionsModal = async (list: LeadList) => {
     setSelectedList(list);
     setShowPermissionsModal(true);
+    // Load permissions when opening the modal (not on page load)
+    await loadListPermissions(list.id);
   };
 
   // CSV Import Functions
@@ -395,6 +518,8 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
     setImportProgress(0);
     setImportStatus('idle');
     setImportResults({ success: 0, failed: 0, errors: [] });
+    setDuplicates([]);
+    setAllDuplicatesSelected(false);
   };
 
   // Auto-detect field mappings based on CSV headers
@@ -475,6 +600,121 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
     setPreviewData(preview);
   };
 
+  // Detect duplicates within CSV and in database
+  const detectDuplicates = async (preview: Partial<Prospect>[]) => {
+    const detectedDuplicates: DuplicateRow[] = [];
+    const phoneMap = new Map<string, number>(); // Track phones in CSV
+    const emailMap = new Map<string, number>(); // Track emails in CSV
+    
+    // Get all existing prospects from database
+    let existingProspects: Prospect[] = [];
+    try {
+      existingProspects = await backendAPI.getProspects();
+    } catch (err) {
+      console.warn('Could not fetch existing prospects for duplicate detection:', err);
+    }
+    
+    // Create lookup maps for database prospects
+    const dbPhoneMap = new Map<string, Prospect>();
+    const dbEmailMap = new Map<string, Prospect>();
+    
+    existingProspects.forEach(p => {
+      if (p.phone) dbPhoneMap.set(p.phone.toLowerCase().replace(/\D/g, ''), p);
+      if (p.email) dbEmailMap.set(p.email.toLowerCase(), p);
+    });
+    
+    // Check each row for duplicates
+    preview.forEach((prospect, index) => {
+      const cleanPhone = prospect.phone?.toLowerCase().replace(/\D/g, '') || '';
+      const cleanEmail = prospect.email?.toLowerCase() || '';
+      
+      let isDuplicate = false;
+      let duplicateType: 'internal' | 'database' = 'internal';
+      let duplicateInfo: DuplicateRow['duplicateInfo'] = undefined;
+      
+      // Check for internal duplicates (within CSV)
+      if (cleanPhone) {
+        if (phoneMap.has(cleanPhone)) {
+          isDuplicate = true;
+          duplicateType = 'internal';
+          duplicateInfo = {
+            field: 'phone',
+            conflictingValue: cleanPhone,
+          };
+        }
+        phoneMap.set(cleanPhone, index);
+      }
+      
+      if (cleanEmail && !isDuplicate) {
+        if (emailMap.has(cleanEmail)) {
+          isDuplicate = true;
+          duplicateType = 'internal';
+          duplicateInfo = {
+            field: 'email',
+            conflictingValue: cleanEmail,
+          };
+        }
+        emailMap.set(cleanEmail, index);
+      }
+      
+      // Check for database duplicates
+      if (!isDuplicate && cleanPhone && dbPhoneMap.has(cleanPhone)) {
+        isDuplicate = true;
+        duplicateType = 'database';
+        const existingRecord = dbPhoneMap.get(cleanPhone);
+        duplicateInfo = {
+          field: 'phone',
+          conflictingValue: cleanPhone,
+          existingRecord,
+        };
+      }
+      
+      if (!isDuplicate && cleanEmail && dbEmailMap.has(cleanEmail)) {
+        isDuplicate = true;
+        duplicateType = 'database';
+        const existingRecord = dbEmailMap.get(cleanEmail);
+        duplicateInfo = {
+          field: 'email',
+          conflictingValue: cleanEmail,
+          existingRecord,
+        };
+      }
+      
+      if (isDuplicate && duplicateInfo) {
+        detectedDuplicates.push({
+          rowIndex: index,
+          prospect,
+          duplicateType,
+          duplicateInfo,
+          selected: false,
+        });
+      }
+    });
+    
+    setDuplicates(detectedDuplicates);
+    return detectedDuplicates;
+  };
+
+  // Toggle duplicate selection
+  const toggleDuplicateSelection = (index: number) => {
+    setDuplicates(prev => {
+      const updated = [...prev];
+      updated[index].selected = !updated[index].selected;
+      return updated;
+    });
+  };
+
+  // Toggle select all duplicates
+  const toggleSelectAllDuplicates = () => {
+    setDuplicates(prev => 
+      prev.map(dup => ({
+        ...dup,
+        selected: !allDuplicatesSelected
+      }))
+    );
+    setAllDuplicatesSelected(!allDuplicatesSelected);
+  };
+
   const handleImportNext = () => {
     if (importStep === 1) {
       if (!importListName.trim()) {
@@ -493,8 +733,31 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
         return;
       }
       // Generate preview data when moving to step 3
-      generatePreview();
-      setImportStep(3);
+      const preview: Partial<Prospect>[] = [];
+      
+      csvData.forEach((row, index) => {
+        const prospect: Partial<Prospect> = {
+          id: `preview-${index}`,
+          status: 'New',
+          timezone: 'America/Los_Angeles', // Default timezone
+        };
+        
+        Object.entries(fieldMappings).forEach(([csvHeader, prospectField]) => {
+          const headerIndex = csvHeaders.indexOf(csvHeader);
+          if (headerIndex !== -1 && row[headerIndex]) {
+            (prospect as any)[prospectField] = row[headerIndex];
+          }
+        });
+        
+        preview.push(prospect);
+      });
+      
+      setPreviewData(preview);
+      
+      // Detect duplicates before moving to step 3
+      detectDuplicates(preview).then(() => {
+        setImportStep(3);
+      });
     }
   };
 
@@ -503,6 +766,8 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
       setImportStep(1);
     } else if (importStep === 3) {
       setImportStep(2);
+      setDuplicates([]);
+      setAllDuplicatesSelected(false);
     }
   };
 
@@ -514,50 +779,84 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
     const results = { 
       success: 0, 
       failed: 0, 
-      duplicates: 0,
+      skipped: 0,
+      updated: 0,
       errors: [] as string[] 
     };
     const prospectIds: string[] = [];
+    const skippedDuplicates: string[] = [];
+    
+    // Get the set of duplicate row indices that were NOT selected
+    const unselectedDuplicateIndices = new Set(
+      duplicates.filter(d => !d.selected).map(d => d.rowIndex)
+    );
+    
+    // Create map of selected duplicates for easy lookup
+    const selectedDuplicateMap = new Map<number, DuplicateRow>();
+    duplicates.filter(d => d.selected).forEach(d => {
+      selectedDuplicateMap.set(d.rowIndex, d);
+    });
     
     try {
       // Create prospects one by one
       for (let i = 0; i < previewData.length; i++) {
         const prospect = previewData[i];
+        
+        // Skip unselected duplicates
+        if (unselectedDuplicateIndices.has(i)) {
+          results.skipped++;
+          const name = `${prospect.firstName || ''} ${prospect.lastName || ''}`.trim() || 'Unknown';
+          const phone = prospect.phone || 'No phone';
+          skippedDuplicates.push(`Row ${i + 1}: "${name}" (${phone})`);
+          continue;
+        }
+        
         setImportProgress(Math.round(((i + 1) / previewData.length) * 100));
         
         try {
-          // Create prospect via API
-          const newProspect = await backendAPI.createProspect({
-            firstName: prospect.firstName || '',
-            lastName: prospect.lastName || '',
-            phone: prospect.phone || '',
-            email: prospect.email || '',
-            company: prospect.company || '',
-            title: prospect.title || '',
-            timezone: prospect.timezone || 'America/Los_Angeles',
-            notes: prospect.notes || '',
-            status: 'New',
-          });
+          const selectedDup = selectedDuplicateMap.get(i);
           
-          prospectIds.push(newProspect.id);
-          results.success++;
-        } catch (err: any) {
-          // Check if it's a duplicate/conflict error (409)
-          const errorMsg = err.message || '';
-          const isDuplicate = errorMsg.includes('already exists') || 
-                             errorMsg.includes('duplicate') ||
-                             errorMsg.includes('409') ||
-                             err.status === 409;
-          
-          if (isDuplicate) {
-            results.duplicates++;
-            const name = `${prospect.firstName || ''} ${prospect.lastName || ''}`.trim() || 'Unknown';
-            const phone = prospect.phone || 'No phone';
-            results.errors.push(`⚠️ Row ${i + 1}: "${name}" (${phone}) - Contact already exists in database`);
+          // If this is a selected duplicate with an existing record, UPDATE it instead of CREATE
+          if (selectedDup && selectedDup.duplicateInfo?.existingRecord) {
+            const existingRecord = selectedDup.duplicateInfo.existingRecord;
+            
+            // Update the existing prospect with new data
+            const updated = await backendAPI.updateProspect(existingRecord.id, {
+              firstName: prospect.firstName || existingRecord.firstName,
+              lastName: prospect.lastName || existingRecord.lastName,
+              phone: prospect.phone || existingRecord.phone,
+              email: prospect.email || existingRecord.email,
+              company: prospect.company || existingRecord.company,
+              title: prospect.title || existingRecord.title,
+              timezone: prospect.timezone || existingRecord.timezone,
+              notes: prospect.notes || existingRecord.notes,
+              // Keep existing status (don't override)
+              status: existingRecord.status,
+            });
+            
+            prospectIds.push(updated.id);
+            results.updated++;
           } else {
-            results.failed++;
-            results.errors.push(`❌ Row ${i + 1}: ${errorMsg || 'Failed to create prospect'}`);
+            // Create new prospect (either not a duplicate or new entry)
+            const newProspect = await backendAPI.createProspect({
+              firstName: prospect.firstName || '',
+              lastName: prospect.lastName || '',
+              phone: prospect.phone || '',
+              email: prospect.email || '',
+              company: prospect.company || '',
+              title: prospect.title || '',
+              timezone: prospect.timezone || 'America/Los_Angeles',
+              notes: prospect.notes || '',
+              status: 'New',
+            });
+            
+            prospectIds.push(newProspect.id);
+            results.success++;
           }
+        } catch (err: any) {
+          const errorMsg = err.message || '';
+          results.failed++;
+          results.errors.push(`❌ Row ${i + 1}: ${errorMsg || 'Failed to process prospect'}`);
         }
       }
       
@@ -566,23 +865,38 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
         await backendAPI.createLeadList(importListName, `Imported from ${selectedFile?.name}`, prospectIds);
       }
       
-      setImportResults({ ...results, failed: results.failed + results.duplicates });
+      setImportResults(results);
       setImportStatus('success');
       
       // Reload lead lists
       await loadLeadLists();
       
       // Show appropriate success/warning message
-      if (results.duplicates > 0 && results.success > 0) {
-        setSuccess(`Imported ${results.success} leads into "${importListName}". ${results.duplicates} duplicate(s) skipped.`);
-      } else if (results.duplicates > 0 && results.success === 0) {
-        setError(`All ${results.duplicates} contacts already exist in the database. No new leads imported.`);
-      } else {
-        setSuccess(`Successfully imported ${results.success} leads into "${importListName}"`);
+      let successMsg = `Import complete!`;
+      if (results.success > 0) {
+        successMsg += ` ✅ ${results.success} new lead(s) imported`;
       }
+      if (results.updated > 0) {
+        successMsg += `${results.success > 0 ? ',' : ''} 📝 ${results.updated} existing lead(s) updated`;
+      }
+      if (results.skipped > 0) {
+        successMsg += `${results.success > 0 || results.updated > 0 ? ',' : ''} ⏭️ ${results.skipped} duplicate(s) skipped`;
+      }
+      successMsg += ` to "${importListName}"`;
+      
+      setSuccess(successMsg);
+      
+      // Emit event to notify other components (PowerDialer) about the new import
+      const importEvent = new CustomEvent('leadListImported', { 
+        detail: { 
+          listName: importListName,
+          prospectCount: prospectIds.length
+        } 
+      });
+      window.dispatchEvent(importEvent);
       
       // Don't auto-close if there were errors - let user review
-      if (results.failed === 0 && results.duplicates === 0) {
+      if (results.failed === 0) {
         setTimeout(() => {
           resetImportModal();
         }, 2000);
@@ -661,9 +975,21 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
                   className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-gray-200 dark:border-slate-700 p-6 hover:shadow-md transition"
                 >
                   <div className="mb-4">
-                    <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
-                      {list.name}
-                    </h3>
+                    <div className="flex items-start justify-between">
+                      <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+                        {list.name}
+                      </h3>
+                      {list.isOwner === false && (
+                        <span className="px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded">
+                          Shared
+                        </span>
+                      )}
+                    </div>
+                    {list.creatorName && (
+                      <p className="text-xs text-gray-500 dark:text-gray-500 mb-1">
+                        Created by: {list.creatorName}
+                      </p>
+                    )}
                     {list.description && (
                       <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
                         {list.description}
@@ -672,26 +998,84 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
                   </div>
 
                   <div className="mb-4 space-y-2">
-                    <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                    <button
+                      onClick={() => setExpandedListId(expandedListId === list.id ? null : list.id)}
+                      className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition"
+                    >
                       <Users size={16} />
                       <span>{list.prospectCount} leads</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                      <Lock size={16} />
-                      <span>{listPermissions.length} shared with</span>
-                    </div>
+                      <span className="text-xs">({expandedListId === list.id ? 'collapse' : 'expand'})</span>
+                    </button>
                   </div>
 
-                  {listProspects.length > 0 && (
-                    <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg max-h-48 overflow-y-auto">
-                      <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 mb-2">Leads in this list:</p>
-                      <div className="space-y-2">
+                  {/* Expanded leads with checkboxes for bulk selection */}
+                  {expandedListId === list.id && listProspects.length > 0 && (
+                    <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-xs font-semibold text-blue-600 dark:text-blue-400">
+                          Leads in this list ({getSelectedCount(list.id)} selected):
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              const allIds = listProspects.map(p => p.id);
+                              if (getSelectedCount(list.id) === listProspects.length) {
+                                deselectAllLeadsInList(list.id);
+                              } else {
+                                selectAllLeadsInList(list.id, allIds);
+                              }
+                            }}
+                            className="text-xs px-2 py-1 bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 rounded hover:bg-blue-100 dark:hover:bg-slate-600 transition flex items-center gap-1"
+                          >
+                            {getSelectedCount(list.id) === listProspects.length ? (
+                              <>
+                                <CheckSquare size={12} /> Deselect All
+                              </>
+                            ) : (
+                              <>
+                                <Square size={12} /> Select All
+                              </>
+                            )}
+                          </button>
+                          {getSelectedCount(list.id) > 0 && (
+                            <button
+                              onClick={() => handleBulkDeleteLeads(list.id)}
+                              disabled={isBulkDeleting}
+                              className="text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition flex items-center gap-1 disabled:opacity-50"
+                            >
+                              {isBulkDeleting ? (
+                                <>
+                                  <Loader2 size={12} className="animate-spin" /> Deleting...
+                                </>
+                              ) : (
+                                <>
+                                  <Trash2 size={12} /> Delete {getSelectedCount(list.id)}
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="space-y-2 max-h-64 overflow-y-auto">
                         {listProspects.map((prospect) => (
-                          <div key={prospect.id} className="text-xs text-gray-700 dark:text-gray-300 flex items-center justify-between bg-white dark:bg-slate-700 p-2 rounded">
-                            <span className="truncate">
-                              {prospect.firstName} {prospect.lastName}
-                              <span className="text-gray-500 ml-1">({prospect.company})</span>
-                            </span>
+                          <div 
+                            key={prospect.id} 
+                            className={`text-xs text-gray-700 dark:text-gray-300 flex items-center justify-between bg-white dark:bg-slate-700 p-2 rounded transition ${
+                              isLeadSelected(list.id, prospect.id) ? 'ring-2 ring-blue-500 bg-blue-50 dark:bg-blue-900/20' : ''
+                            }`}
+                          >
+                            <label className="flex items-center gap-2 cursor-pointer flex-1">
+                              <input
+                                type="checkbox"
+                                checked={isLeadSelected(list.id, prospect.id)}
+                                onChange={() => toggleLeadSelection(list.id, prospect.id)}
+                                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                              />
+                              <span className="truncate">
+                                {prospect.firstName} {prospect.lastName}
+                                <span className="text-gray-500 ml-1">({prospect.company || 'No company'})</span>
+                              </span>
+                            </label>
                             <button
                               onClick={() => handleDeleteLeadFromList(list.id, prospect.id)}
                               className="ml-2 text-red-600 hover:text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 px-2 py-1 rounded"
@@ -705,28 +1089,12 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
                     </div>
                   )}
 
-                  {listPermissions.length > 0 && (
-                    <div className="mb-4 p-3 bg-gray-50 dark:bg-slate-700 rounded-lg">
-                      <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">Shared with:</p>
-                      <div className="space-y-1">
-                        {listPermissions.map((perm) => (
-                          <div key={perm.id} className="text-xs text-gray-700 dark:text-gray-300 flex items-center justify-between">
-                            <span>
-                              User {perm.userId.substring(0, 8)}... 
-                              <span className="ml-2 text-gray-500">
-                                {perm.canEdit ? '(Edit)' : perm.canView ? '(View)' : ''}
-                              </span>
-                            </span>
-                            <button
-                              onClick={() => handleRemovePermission(list.id, perm.id)}
-                              className="text-red-600 hover:text-red-700 dark:text-red-400"
-                              title="Remove permission"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
-                      </div>
+                  {/* Collapsed view - just show count */}
+                  {expandedListId !== list.id && listProspects.length > 0 && (
+                    <div className="mb-4 p-3 bg-gray-50 dark:bg-slate-700/50 rounded-lg">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
+                        Click "expand" to view and select leads
+                      </p>
                     </div>
                   )}
 
@@ -861,10 +1229,50 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
                 </h3>
               </div>
 
+              {/* Current Shares */}
+              {(permissions.get(selectedList.id) || []).length > 0 && (
+                <div className="p-6 border-b border-gray-200 dark:border-slate-700">
+                  <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Currently shared with:</p>
+                  <div className="space-y-2">
+                    {(permissions.get(selectedList.id) || []).map((perm: any) => (
+                      <div key={perm.id} className="flex items-center justify-between bg-gray-50 dark:bg-slate-700 p-3 rounded-lg">
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white">
+                            {perm.user?.firstName || 'Unknown'} {perm.user?.lastName || ''}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            {perm.user?.email || perm.userId}
+                          </p>
+                          <div className="flex gap-2 mt-1">
+                            {perm.canView && (
+                              <span className="text-xs px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded">
+                                View
+                              </span>
+                            )}
+                            {perm.canEdit && (
+                              <span className="text-xs px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded">
+                                Edit
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleRemovePermission(selectedList.id, perm.userId)}
+                          className="ml-2 p-2 text-red-600 hover:text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition"
+                          title="Remove access"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <form onSubmit={handleAddPermission} className="p-6 space-y-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                    Select Team Member *
+                    Add Team Member *
                   </label>
                   <select
                     value={permissionData.targetUserId}
@@ -918,7 +1326,7 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
                     onClick={() => setShowPermissionsModal(false)}
                     className="flex-1 px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-700 font-semibold transition"
                   >
-                    Cancel
+                    Close
                   </button>
                   <button
                     type="submit"
@@ -1276,14 +1684,120 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
                 <div className="p-6 space-y-6">
                   {importStatus === 'idle' && (
                     <>
+                      {/* Duplicate Detection Alert */}
+                      {duplicates.length > 0 && (
+                        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-lg p-4">
+                          <div className="flex items-start gap-3">
+                            <AlertTriangle size={24} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                            <div className="flex-1">
+                              <p className="font-semibold text-amber-900 dark:text-amber-200">
+                                ⚠️ {duplicates.length} duplicate(s) detected
+                              </p>
+                              <p className="text-sm text-amber-800 dark:text-amber-300 mt-1">
+                                Some leads in your CSV file already exist in the database or appear multiple times in the file. 
+                                <br />
+                                <strong>When you select a duplicate:</strong>
+                              </p>
+                              <ul className="text-sm text-amber-800 dark:text-amber-300 mt-2 ml-4 space-y-1">
+                                <li>• <strong>📂 Database duplicates (📝 Will update)</strong> - Will update the existing record with new information from CSV (name, phone, email, company, title, notes)</li>
+                                <li>• <strong>🔄 Within CSV duplicates (🔄 Will add)</strong> - Will add as a new separate entry</li>
+                                <li>• <strong>✗ Unselected duplicates</strong> - Will be skipped completely</li>
+                              </ul>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Duplicates Table */}
+                      {duplicates.length > 0 && (
+                        <div>
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                              Select duplicates to import ({duplicates.filter(d => d.selected).length} of {duplicates.length} selected)
+                            </h4>
+                            <button
+                              onClick={toggleSelectAllDuplicates}
+                              className="text-xs px-3 py-1 border border-gray-300 dark:border-slate-600 rounded hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-300"
+                            >
+                              {allDuplicatesSelected ? 'Deselect All' : 'Select All'}
+                            </button>
+                          </div>
+                          
+                          <div className="border border-amber-200 dark:border-amber-800 rounded-lg overflow-hidden max-h-96 overflow-y-auto">
+                            <table className="min-w-full divide-y divide-amber-200 dark:divide-amber-800">
+                              <thead className="bg-amber-50 dark:bg-amber-900/30 sticky top-0">
+                                <tr>
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-amber-900 dark:text-amber-200 w-12">
+                                    <input
+                                      type="checkbox"
+                                      checked={allDuplicatesSelected}
+                                      onChange={toggleSelectAllDuplicates}
+                                      className="w-4 h-4 cursor-pointer"
+                                    />
+                                  </th>
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-amber-900 dark:text-amber-200">Row</th>
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-amber-900 dark:text-amber-200">Name</th>
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-amber-900 dark:text-amber-200">Contact</th>
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-amber-900 dark:text-amber-200">Type</th>
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-amber-900 dark:text-amber-200">Conflict Info</th>
+                                </tr>
+                              </thead>
+                              <tbody className="bg-white dark:bg-slate-800 divide-y divide-amber-200 dark:divide-amber-800">
+                                {duplicates.map((dup, idx) => (
+                                  <tr key={idx} className="hover:bg-amber-50 dark:hover:bg-amber-900/10">
+                                    <td className="px-4 py-3">
+                                      <input
+                                        type="checkbox"
+                                        checked={dup.selected}
+                                        onChange={() => toggleDuplicateSelection(idx)}
+                                        className="w-4 h-4 cursor-pointer"
+                                      />
+                                    </td>
+                                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                                      #{dup.rowIndex + 1}
+                                    </td>
+                                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
+                                      {dup.prospect.firstName} {dup.prospect.lastName}
+                                    </td>
+                                    <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
+                                      {dup.duplicateInfo?.field === 'phone' ? dup.prospect.phone : dup.prospect.email}
+                                    </td>
+                                    <td className="px-4 py-3 text-xs">
+                                      <span className={`px-2 py-1 rounded-full whitespace-nowrap ${
+                                        dup.duplicateType === 'internal'
+                                          ? 'bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300'
+                                          : 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300'
+                                      }`}>
+                                        {dup.duplicateType === 'internal' ? '🔄 Within CSV' : '📂 In Database'}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
+                                      {dup.duplicateInfo?.field === 'phone' ? '📞' : '📧'}{' '}
+                                      {dup.duplicateType === 'database' && dup.duplicateInfo?.existingRecord
+                                        ? `Matches: ${dup.duplicateInfo.existingRecord.firstName} ${dup.duplicateInfo.existingRecord.lastName}`
+                                        : 'Duplicate entry'}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Import Summary */}
-                      <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
                         <div className="flex items-center gap-3">
-                          <CheckCircle size={24} className="text-green-600 dark:text-green-400" />
-                          <div>
-                            <p className="font-semibold text-green-800 dark:text-green-300">Ready to import</p>
-                            <p className="text-sm text-green-700 dark:text-green-400">
-                              {previewData.length} leads will be imported into "{importListName}"
+                          <CheckCircle size={24} className="text-blue-600 dark:text-blue-400" />
+                          <div className="flex-1">
+                            <p className="font-semibold text-blue-800 dark:text-blue-300">Ready to import</p>
+                            <p className="text-sm text-blue-700 dark:text-blue-400 mt-1">
+                              {previewData.filter((_, i) => !duplicates.find(d => d.rowIndex === i && !d.selected)).length} leads will be imported into "<strong>{importListName}</strong>"
+                              {duplicates.length > 0 && (
+                                <span className="ml-2">
+                                  ({duplicates.filter(d => d.selected).length} selected duplicate(s) will be imported)
+                                </span>
+                              )}
                             </p>
                           </div>
                         </div>
@@ -1308,7 +1822,7 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
 
                       {/* Preview Table */}
                       <div>
-                        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Preview (First 5 leads)</h4>
+                        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Preview (First 5 leads to import)</h4>
                         <div className="border border-gray-200 dark:border-slate-600 rounded-lg overflow-hidden">
                           <div className="overflow-x-auto">
                             <table className="min-w-full divide-y divide-gray-200 dark:divide-slate-600">
@@ -1319,20 +1833,52 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
                                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Phone</th>
                                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Email</th>
                                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Company</th>
+                                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Status</th>
                                 </tr>
                               </thead>
                               <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-600">
-                                {previewData.slice(0, 5).map((prospect, idx) => (
-                                  <tr key={idx}>
-                                    <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{idx + 1}</td>
-                                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
-                                      {prospect.firstName} {prospect.lastName}
-                                    </td>
-                                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{prospect.phone || '-'}</td>
-                                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{prospect.email || '-'}</td>
-                                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{prospect.company || '-'}</td>
-                                  </tr>
-                                ))}
+                                {previewData.slice(0, 5).map((prospect, idx) => {
+                                  const isDuplicate = duplicates.some(d => d.rowIndex === idx);
+                                  const isSelected = duplicates.find(d => d.rowIndex === idx)?.selected ?? true;
+                                  const duplicateRow = duplicates.find(d => d.rowIndex === idx);
+                                  const hasExistingRecord = duplicateRow?.duplicateInfo?.existingRecord;
+                                  const rowClass = isDuplicate && !isSelected ? 'opacity-50' : '';
+                                  
+                                  return (
+                                    <tr key={idx} className={`${rowClass}`}>
+                                      <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{idx + 1}</td>
+                                      <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">
+                                        {prospect.firstName} {prospect.lastName}
+                                      </td>
+                                      <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{prospect.phone || '-'}</td>
+                                      <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{prospect.email || '-'}</td>
+                                      <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{prospect.company || '-'}</td>
+                                      <td className="px-4 py-3 text-sm">
+                                        {isDuplicate ? (
+                                          isSelected ? (
+                                            hasExistingRecord ? (
+                                              <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 text-xs rounded whitespace-nowrap">
+                                                📝 Will update
+                                              </span>
+                                            ) : (
+                                              <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 text-xs rounded whitespace-nowrap">
+                                                🔄 Will add
+                                              </span>
+                                            )
+                                          ) : (
+                                            <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 text-xs rounded">
+                                              ✗ Skip
+                                            </span>
+                                          )
+                                        ) : (
+                                          <span className="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 text-xs rounded">
+                                            ✓ Import
+                                          </span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
                               </tbody>
                             </table>
                           </div>
@@ -1369,12 +1915,28 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
                           <CheckCircle size={32} className="text-green-600 dark:text-green-400" />
                         </div>
                         <p className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Import Complete!</p>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">
-                          ✅ <span className="font-medium text-green-600">{importResults.success}</span> leads imported successfully
-                        </p>
+                        
+                        {importResults.success > 0 && (
+                          <p className="text-sm text-gray-600 dark:text-gray-400">
+                            ✅ <span className="font-medium text-green-600">{importResults.success}</span> new lead(s) imported successfully
+                          </p>
+                        )}
+                        
+                        {(importResults as any).updated > 0 && (
+                          <p className="text-sm text-gray-600 dark:text-gray-400">
+                            📝 <span className="font-medium text-blue-600">{(importResults as any).updated}</span> existing lead(s) updated
+                          </p>
+                        )}
+                        
+                        {(importResults as any).skipped > 0 && (
+                          <p className="text-sm text-gray-600 dark:text-gray-400">
+                            ⏭️ <span className="font-medium text-amber-600">{(importResults as any).skipped}</span> duplicate(s) skipped per your selection
+                          </p>
+                        )}
+                        
                         {importResults.failed > 0 && (
                           <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
-                            ⚠️ <span className="font-medium">{importResults.failed}</span> contacts skipped (duplicates or errors)
+                            ⚠️ <span className="font-medium">{importResults.failed}</span> row(s) failed to process
                           </p>
                         )}
                       </div>
@@ -1384,7 +1946,7 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
                         <div className="mt-4 max-h-48 overflow-y-auto border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 rounded-lg p-4">
                           <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-2 flex items-center gap-2">
                             <AlertTriangle size={16} />
-                            Skipped Contacts:
+                            Details:
                           </p>
                           <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-1">
                             {importResults.errors.slice(0, 20).map((error, idx) => (

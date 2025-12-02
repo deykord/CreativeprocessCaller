@@ -4,6 +4,7 @@ module.exports = {
   port: process.env.PORT || 3001,
   env: process.env.NODE_ENV || 'development',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:3000',
+  serverUrl: process.env.SERVER_URL || 'https://salescallagent.my',
   twilio: {
     accountSid: process.env.TWILIO_ACCOUNT_SID,
     apiKey: process.env.TWILIO_API_KEY,

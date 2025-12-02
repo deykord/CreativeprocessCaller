@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Mic, Square, Play, Pause, Trash2, Star, Phone, Plus, X, 
-  Volume2, Clock, Check, AlertCircle, Download, Upload
+  Volume2, Clock, Check, AlertCircle, Download, Upload, CheckSquare, Square as SquareIcon
 } from 'lucide-react';
 import { backendAPI } from '../services/BackendAPI';
 
@@ -44,6 +44,10 @@ export const VoicemailManager: React.FC<VoicemailManagerProps> = ({
   // Playback state
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [playbackProgress, setPlaybackProgress] = useState<Record<string, number>>({});
+  
+  // Selection state for bulk operations
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -175,17 +179,72 @@ export const VoicemailManager: React.FC<VoicemailManagerProps> = ({
     }
   };
 
+  // Selection handlers
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === voicemails.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(voicemails.map(v => v.id)));
+    }
+  };
+
   const deleteVoicemail = async (id: string) => {
     if (!window.confirm('Are you sure you want to delete this voicemail?')) return;
     
     try {
       await backendAPI.deleteVoicemail(id);
       setVoicemails(prev => prev.filter(v => v.id !== id));
+      setSelectedIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(id);
+        return newSet;
+      });
       setSuccess('Voicemail deleted');
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
       console.error('Failed to delete voicemail:', err);
       setError('Failed to delete voicemail');
+    }
+  };
+
+  const deleteSelectedVoicemails = async () => {
+    if (selectedIds.size === 0) return;
+    
+    const count = selectedIds.size;
+    if (!window.confirm(`Are you sure you want to delete ${count} voicemail${count > 1 ? 's' : ''}?`)) return;
+    
+    setIsDeleting(true);
+    try {
+      const deletePromises = Array.from(selectedIds).map(id => 
+        backendAPI.deleteVoicemail(id).catch(err => {
+          console.error(`Failed to delete voicemail ${id}:`, err);
+          return null;
+        })
+      );
+      
+      await Promise.all(deletePromises);
+      
+      setVoicemails(prev => prev.filter(v => !selectedIds.has(v.id)));
+      setSelectedIds(new Set());
+      setSuccess(`${count} voicemail${count > 1 ? 's' : ''} deleted`);
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      console.error('Failed to delete voicemails:', err);
+      setError('Failed to delete some voicemails');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -366,86 +425,182 @@ export const VoicemailManager: React.FC<VoicemailManagerProps> = ({
             </button>
           </div>
         ) : (
-          <div className="space-y-3">
-            {voicemails.map(voicemail => (
-              <div 
-                key={voicemail.id}
-                className={`p-4 rounded-lg border ${
-                  voicemail.isDefault 
-                    ? 'border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-900/20' 
-                    : 'border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-700/50'
-                } ${selectionMode ? 'cursor-pointer hover:border-blue-400' : ''}`}
-                onClick={() => selectionMode && onSelect && onSelect(voicemail)}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    {/* Play/Pause button */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); playVoicemail(voicemail); }}
-                      className={`w-10 h-10 rounded-full flex items-center justify-center transition ${
-                        playingId === voicemail.id
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-200 dark:bg-slate-600 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-slate-500'
-                      }`}
-                    >
-                      {playingId === voicemail.id ? <Pause size={18} /> : <Play size={18} />}
-                    </button>
-                    
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-medium text-gray-900 dark:text-white">{voicemail.name}</h4>
-                        {voicemail.isDefault && (
-                          <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-xs rounded-full flex items-center gap-1">
-                            <Star size={10} fill="currentColor" />
-                            Default
-                          </span>
+          <div>
+            {/* Bulk Actions Bar */}
+            {selectedIds.size > 0 && (
+              <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg flex items-center justify-between">
+                <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                  {selectedIds.size} voicemail{selectedIds.size > 1 ? 's' : ''} selected
+                </span>
+                <button
+                  onClick={deleteSelectedVoicemails}
+                  disabled={isDeleting}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white rounded-lg text-sm font-medium transition"
+                >
+                  {isDeleting ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Trash2 size={14} />
+                  )}
+                  Delete Selected
+                </button>
+              </div>
+            )}
+            
+            {/* Voicemails Table */}
+            <div className="overflow-x-auto border border-gray-200 dark:border-slate-700 rounded-lg">
+              <table className="w-full">
+                <thead className="bg-gray-50 dark:bg-slate-700">
+                  <tr>
+                    <th className="px-4 py-3 text-left w-12">
+                      <button
+                        onClick={toggleSelectAll}
+                        className="p-1 rounded hover:bg-gray-200 dark:hover:bg-slate-600 transition"
+                        title={selectedIds.size === voicemails.length ? 'Deselect all' : 'Select all'}
+                      >
+                        {selectedIds.size === voicemails.length ? (
+                          <CheckSquare size={18} className="text-blue-600 dark:text-blue-400" />
+                        ) : selectedIds.size > 0 ? (
+                          <div className="w-[18px] h-[18px] border-2 border-blue-600 dark:border-blue-400 rounded bg-blue-600 dark:bg-blue-400 flex items-center justify-center">
+                            <div className="w-2 h-0.5 bg-white"></div>
+                          </div>
+                        ) : (
+                          <SquareIcon size={18} className="text-gray-400" />
                         )}
-                      </div>
-                      <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        <span className="flex items-center gap-1">
-                          <Clock size={12} />
+                      </button>
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                      Play
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                      Name
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                      Duration
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                      Usage
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                      Created
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 dark:divide-slate-700">
+                  {voicemails.map(voicemail => (
+                    <tr 
+                      key={voicemail.id}
+                      className={`${
+                        selectedIds.has(voicemail.id) 
+                          ? 'bg-blue-50 dark:bg-blue-900/20' 
+                          : voicemail.isDefault
+                            ? 'bg-yellow-50/50 dark:bg-yellow-900/10'
+                            : 'bg-white dark:bg-slate-800 hover:bg-gray-50 dark:hover:bg-slate-750'
+                      } ${selectionMode ? 'cursor-pointer' : ''}`}
+                      onClick={() => selectionMode && onSelect && onSelect(voicemail)}
+                    >
+                      {/* Checkbox */}
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleSelect(voicemail.id); }}
+                          className="p-1 rounded hover:bg-gray-200 dark:hover:bg-slate-600 transition"
+                        >
+                          {selectedIds.has(voicemail.id) ? (
+                            <CheckSquare size={18} className="text-blue-600 dark:text-blue-400" />
+                          ) : (
+                            <SquareIcon size={18} className="text-gray-400" />
+                          )}
+                        </button>
+                      </td>
+                      
+                      {/* Play Button */}
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); playVoicemail(voicemail); }}
+                          className={`w-9 h-9 rounded-full flex items-center justify-center transition ${
+                            playingId === voicemail.id
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-gray-200 dark:bg-slate-600 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-slate-500'
+                          }`}
+                        >
+                          {playingId === voicemail.id ? <Pause size={16} /> : <Play size={16} />}
+                        </button>
+                      </td>
+                      
+                      {/* Name */}
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-900 dark:text-white">{voicemail.name}</span>
+                          {voicemail.isDefault && (
+                            <span className="px-2 py-0.5 bg-yellow-100 dark:bg-yellow-900/50 text-yellow-700 dark:text-yellow-300 text-xs rounded-full flex items-center gap-1">
+                              <Star size={10} fill="currentColor" />
+                              Default
+                            </span>
+                          )}
+                        </div>
+                        {/* Playback progress */}
+                        {playingId === voicemail.id && (
+                          <div className="mt-1 h-1 bg-gray-200 dark:bg-slate-600 rounded-full overflow-hidden w-32">
+                            <div 
+                              className="h-full bg-blue-600 transition-all duration-100"
+                              style={{ width: `${playbackProgress[voicemail.id] || 0}%` }}
+                            />
+                          </div>
+                        )}
+                      </td>
+                      
+                      {/* Duration */}
+                      <td className="px-4 py-3">
+                        <span className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400">
+                          <Clock size={14} />
                           {formatDuration(voicemail.duration)}
                         </span>
-                        <span className="flex items-center gap-1">
-                          <Phone size={12} />
-                          Used {voicemail.usageCount} times
+                      </td>
+                      
+                      {/* Usage */}
+                      <td className="px-4 py-3">
+                        <span className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400">
+                          <Phone size={14} />
+                          {voicemail.usageCount} times
                         </span>
-                        <span>{formatDate(voicemail.createdAt)}</span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-2">
-                    {!voicemail.isDefault && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setAsDefault(voicemail.id); }}
-                        className="p-2 text-gray-500 hover:text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-900/30 rounded-lg transition"
-                        title="Set as default"
-                      >
-                        <Star size={18} />
-                      </button>
-                    )}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); deleteVoicemail(voicemail.id); }}
-                      className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition"
-                      title="Delete"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                </div>
-                
-                {/* Playback progress bar */}
-                {playingId === voicemail.id && (
-                  <div className="mt-3 h-1 bg-gray-200 dark:bg-slate-600 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-blue-600 transition-all duration-100"
-                      style={{ width: `${playbackProgress[voicemail.id] || 0}%` }}
-                    />
-                  </div>
-                )}
-              </div>
-            ))}
+                      </td>
+                      
+                      {/* Created */}
+                      <td className="px-4 py-3">
+                        <span className="text-sm text-gray-600 dark:text-gray-400">
+                          {formatDate(voicemail.createdAt)}
+                        </span>
+                      </td>
+                      
+                      {/* Actions */}
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1">
+                          {!voicemail.isDefault && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setAsDefault(voicemail.id); }}
+                              className="p-2 text-gray-500 hover:text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-900/30 rounded-lg transition"
+                              title="Set as default"
+                            >
+                              <Star size={16} />
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); deleteVoicemail(voicemail.id); }}
+                            className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition"
+                            title="Delete"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

@@ -48,20 +48,35 @@ export const TeamManagement: React.FC = () => {
 
   const loadTeamMembers = async () => {
     try {
-      // This would call a backend endpoint to fetch team members
-      // For now, we'll use mock data from localStorage
-      const stored = localStorage.getItem('teamMembers');
-      if (stored) {
-        setTeamMembers(JSON.parse(stored));
-      }
+      const members = await backendAPI.getTeamMembers();
+      // Transform backend response to TeamMember format
+      const formattedMembers: TeamMember[] = members.map((m: any) => ({
+        id: m.id,
+        email: m.email,
+        firstName: m.firstName,
+        lastName: m.lastName,
+        role: m.role || 'agent',
+        permissions: m.permissions || {
+          viewProspects: true,
+          makeCalls: true,
+          viewCallHistory: true,
+          viewReports: m.role !== 'agent',
+          manageTeam: m.role === 'admin',
+          editSettings: m.role === 'admin' || m.role === 'manager',
+          canDeleteLeads: m.role === 'admin',
+          canEditLeads: m.role === 'admin' || m.role === 'manager',
+        },
+        createdAt: m.createdAt || new Date().toISOString(),
+      }));
+      setTeamMembers(formattedMembers);
     } catch (error) {
       console.error('Failed to load team members:', error);
+      setMessage({ type: 'error', text: 'Failed to load team members from server' });
     }
   };
 
-  const saveTeamMembers = (members: TeamMember[]) => {
-    localStorage.setItem('teamMembers', JSON.stringify(members));
-    setTeamMembers(members);
+  const refreshTeamMembers = async () => {
+    await loadTeamMembers();
   };
 
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -101,7 +116,7 @@ export const TeamManagement: React.FC = () => {
           createdAt: new Date().toISOString(),
         };
 
-        saveTeamMembers([...teamMembers, newMember]);
+        await refreshTeamMembers();
         setMessage({ type: 'success', text: `User ${formData.email} created successfully! Default password: ${formData.email.split('@')[0]}123` });
         setFormData({ email: '', firstName: '', lastName: '', role: 'agent' });
         setShowCreateForm(false);
@@ -115,18 +130,23 @@ export const TeamManagement: React.FC = () => {
     }
   };
 
-  const handleUpdatePermissions = (member: TeamMember) => {
+  const handleUpdatePermissions = async (member: TeamMember) => {
+    // TODO: Add backend API to update user permissions
     const updated = teamMembers.map(m => m.id === member.id ? member : m);
-    saveTeamMembers(updated);
+    setTeamMembers(updated);
     setEditingId(null);
     setMessage({ type: 'success', text: `Permissions updated for ${member.email}` });
   };
 
-  const handleDeleteUser = (memberId: string) => {
+  const handleDeleteUser = async (memberId: string) => {
     if (confirm('Are you sure you want to delete this user?')) {
-      const updated = teamMembers.filter(m => m.id !== memberId);
-      saveTeamMembers(updated);
-      setMessage({ type: 'success', text: 'User deleted successfully' });
+      try {
+        await backendAPI.deleteUser(memberId);
+        await refreshTeamMembers();
+        setMessage({ type: 'success', text: 'User deleted successfully' });
+      } catch (error) {
+        setMessage({ type: 'error', text: 'Failed to delete user' });
+      }
     }
   };
 

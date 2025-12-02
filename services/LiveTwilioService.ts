@@ -138,7 +138,13 @@ class LiveTwilioService {
       const call = await this.device.connect({ params });
       this.currentCall = call;
       // The callSid is available on the call object after connection
-      this.currentCallSid = (call as any).parameters?.CallSid || null;
+      // Try multiple ways to get the CallSid
+      this.currentCallSid = (call as any).parameters?.CallSid 
+        || (call as any).customParameters?.get?.('CallSid')
+        || (call as any)._mediaHandler?.callSid
+        || null;
+      
+      console.log('Call connected, CallSid:', this.currentCallSid);
       this.setupCallListeners(call);
       return call;
     } catch (err) {
@@ -152,14 +158,32 @@ class LiveTwilioService {
     // Called when the call is accepted/answered
     call.on('accept', () => {
       this.callStartTime = new Date();
-      // Get CallSid when call is accepted
-      this.currentCallSid = (call as any).parameters?.CallSid || this.currentCallSid;
+      // Get CallSid when call is accepted - try multiple properties
+      const callSid = (call as any).parameters?.CallSid 
+        || (call as any).customParameters?.get?.('CallSid')
+        || (call as any)._mediaHandler?.callSid
+        || (call as any).outboundConnectionId
+        || this.currentCallSid;
+      
+      if (callSid) {
+        this.currentCallSid = callSid;
+        console.log('Call accepted, CallSid:', this.currentCallSid);
+      }
       this.emitStatus(CallState.CONNECTED);
     });
 
     // Called when the call is ringing
     call.on('ringing', (hasEarlyMedia: boolean) => {
       console.log('Call is ringing, hasEarlyMedia:', hasEarlyMedia);
+      // Also try to get CallSid on ringing
+      const callSid = (call as any).parameters?.CallSid 
+        || (call as any).customParameters?.get?.('CallSid')
+        || (call as any)._mediaHandler?.callSid
+        || (call as any).outboundConnectionId;
+      if (callSid && !this.currentCallSid) {
+        this.currentCallSid = callSid;
+        console.log('Got CallSid on ringing:', this.currentCallSid);
+      }
       this.emitStatus(CallState.RINGING);
     });
 

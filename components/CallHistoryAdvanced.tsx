@@ -52,7 +52,7 @@ interface FilterState {
 const OUTCOMES = ['Connected', 'Meeting Set', 'Voicemail', 'Busy', 'No Answer', 'Not Interested', 'Callback', 'Wrong Number'];
 const ANSWERED_BY_OPTIONS = ['human', 'machine', 'unknown'];
 
-const DEFAULT_COLUMNS = ['timestamp', 'prospectName', 'phoneNumber', 'duration', 'outcome', 'callerName', 'note'];
+const DEFAULT_COLUMNS = ['timestamp', 'prospectName', 'phoneNumber', 'duration', 'outcome', 'callerName', 'note', 'recording'];
 
 const ALL_COLUMNS = [
   { key: 'timestamp', label: 'Date & Time', icon: Calendar },
@@ -877,7 +877,7 @@ const CallHistoryAdvanced: React.FC = () => {
                       return (
                         <td key={colKey} className="px-4 py-3">
                           {log.recordingUrl ? (
-                            <audio controls src={log.recordingUrl} className="h-8 w-32" />
+                            <audio controls src={`/api/calls/recording/${log.id}/stream`} className="h-8 w-32" />
                           ) : (
                             <span className="text-sm text-gray-400">-</span>
                           )}

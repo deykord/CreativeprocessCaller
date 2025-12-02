@@ -1,4 +1,4 @@
-const db = require('../services/mockDatabase');
+const databaseService = require('../services/databaseService');
 
 // --- Lead List Management ---
 
@@ -11,13 +11,12 @@ exports.createLeadList = async (req, res) => {
       return res.status(400).json({ error: 'List name is required' });
     }
 
-    const newList = await db.createLeadList({
+    const newList = await databaseService.createLeadList(
       name,
-      description: description || '',
-      createdBy: userId,
-      prospectIds: prospects || [],
-      prospectCount: (prospects || []).length,
-    });
+      description || '',
+      prospects || [],
+      userId
+    );
 
     res.json(newList);
   } catch (error) {
@@ -29,20 +28,24 @@ exports.createLeadList = async (req, res) => {
 exports.getLeadLists = async (req, res) => {
   try {
     const userId = req.userId; // Set by auth middleware
-    const allLists = await db.getAllLeadLists();
     
-    // Filter lists the user can see
-    const accessibleLists = [];
+    const lists = await databaseService.getLeadLists(userId);
     
-    for (const list of allLists) {
-      // User can see if they created it or have permission
-      const canAccess = await db.canUserAccessList(userId, list.id);
-      if (list.createdBy === userId || canAccess) {
-        accessibleLists.push(list);
-      }
-    }
+    // Transform to frontend format
+    const formatted = lists.map(list => ({
+      id: list.id,
+      name: list.name,
+      description: list.description,
+      createdBy: list.created_by || list.createdBy,
+      creatorName: list.creatorName,
+      isOwner: list.isOwner,
+      createdAt: list.created_at || list.createdAt,
+      updatedAt: list.updated_at || list.updatedAt,
+      prospectIds: list.prospectIds || [],
+      prospectCount: parseInt(list.prospect_count) || list.prospectCount || 0
+    }));
 
-    res.json(accessibleLists);
+    res.json(formatted);
   } catch (error) {
     console.error('Get lead lists error:', error);
     res.status(500).json({ error: 'Failed to fetch lead lists' });
@@ -54,15 +57,19 @@ exports.getLeadList = async (req, res) => {
     const { id } = req.params;
     const userId = req.userId;
 
-    const list = await db.getLeadList(id);
+    const list = await databaseService.getLeadList(id);
+
     if (!list) {
       return res.status(404).json({ error: 'Lead list not found' });
     }
 
     // Check permission
-    const canAccess = await db.canUserAccessList(userId, id);
-    if (list.createdBy !== userId && !canAccess) {
-      return res.status(403).json({ error: 'Access denied' });
+    if (list.createdBy !== userId) {
+      const canAccess = await databaseService.checkUserListAccess(userId, id);
+      
+      if (!canAccess) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
     }
 
     res.json(list);
@@ -78,7 +85,8 @@ exports.updateLeadList = async (req, res) => {
     const userId = req.userId;
     const { name, description, prospects } = req.body;
 
-    const list = await db.getLeadList(id);
+    const list = await databaseService.getLeadList(id);
+
     if (!list) {
       return res.status(404).json({ error: 'Lead list not found' });
     }
@@ -91,12 +99,10 @@ exports.updateLeadList = async (req, res) => {
     const updates = {};
     if (name) updates.name = name;
     if (description !== undefined) updates.description = description;
-    if (prospects) {
-      updates.prospectIds = prospects;
-      updates.prospectCount = prospects.length;
-    }
+    if (prospects) updates.prospectIds = prospects;
 
-    const updated = await db.updateLeadList(id, updates);
+    const updated = await databaseService.updateLeadList(id, updates, userId);
+
     res.json(updated);
   } catch (error) {
     console.error('Update lead list error:', error);
@@ -109,7 +115,8 @@ exports.deleteLeadList = async (req, res) => {
     const { id } = req.params;
     const userId = req.userId;
 
-    const list = await db.getLeadList(id);
+    const list = await databaseService.getLeadList(id);
+
     if (!list) {
       return res.status(404).json({ error: 'Lead list not found' });
     }
@@ -119,11 +126,40 @@ exports.deleteLeadList = async (req, res) => {
       return res.status(403).json({ error: 'Only list creator can delete' });
     }
 
-    await db.deleteLeadList(id);
+    await databaseService.deleteLeadList(id);
+
     res.json({ success: true, message: 'Lead list deleted' });
   } catch (error) {
     console.error('Delete lead list error:', error);
     res.status(500).json({ error: 'Failed to delete lead list' });
+  }
+};
+
+/**
+ * Get lead list audit log
+ */
+exports.getAuditLog = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.userId;
+    const limit = req.query.limit || 50;
+
+    const list = await databaseService.getLeadList(id);
+
+    if (!list) {
+      return res.status(404).json({ error: 'Lead list not found' });
+    }
+
+    if (list.createdBy !== userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const auditLog = await databaseService.getLeadListAuditLog(id, limit);
+
+    res.json(auditLog);
+  } catch (error) {
+    console.error('Get audit log error:', error);
+    res.status(500).json({ error: 'Failed to fetch audit log' });
   }
 };
 
@@ -135,39 +171,39 @@ exports.addPermission = async (req, res) => {
     const userId = req.userId;
     const { targetUserId, canView, canEdit } = req.body;
 
-    const list = await db.getLeadList(id);
+    // Get user role to check if admin
+    const user = await databaseService.getUserById(userId);
+    const isAdmin = user?.role === 'admin';
+
+    const list = await databaseService.getLeadList(id);
+
     if (!list) {
       return res.status(404).json({ error: 'Lead list not found' });
     }
 
-    // Only creator (or admin) can manage permissions
-    if (list.createdBy !== userId) {
-      return res.status(403).json({ error: 'Only list creator can manage permissions' });
+    // Only admins or list creators can manage permissions
+    if (!isAdmin && list.createdBy !== userId) {
+      return res.status(403).json({ error: 'Only admins can share lists' });
     }
 
     if (!targetUserId) {
       return res.status(400).json({ error: 'Target user ID is required' });
     }
 
-    // Check if permission already exists
-    const existing = await db.getLeadListPermissions(id);
-    const alreadyExists = existing.find(p => p.userId === targetUserId);
-    
-    if (alreadyExists) {
-      // Update existing permission
-      const updated = await db.updateLeadListPermission(alreadyExists.id, { canView, canEdit });
-      return res.json(updated);
+    // Cannot share with yourself
+    if (targetUserId === userId) {
+      return res.status(400).json({ error: 'Cannot share a list with yourself' });
     }
 
-    // Add new permission
-    const permission = await db.addLeadListPermission({
-      listId: id,
-      userId: targetUserId,
-      canView: canView !== false,
-      canEdit: canEdit === true,
-    });
+    const share = await databaseService.shareLeadList(
+      id, 
+      targetUserId, 
+      userId, 
+      canView !== false, 
+      canEdit === true
+    );
 
-    res.json(permission);
+    res.json({ success: true, share });
   } catch (error) {
     console.error('Add permission error:', error);
     res.status(500).json({ error: 'Failed to add permission' });
@@ -179,18 +215,23 @@ exports.getPermissions = async (req, res) => {
     const { id } = req.params;
     const userId = req.userId;
 
-    const list = await db.getLeadList(id);
+    // Get user role to check if admin
+    const user = await databaseService.getUserById(userId);
+    const isAdmin = user?.role === 'admin';
+
+    const list = await databaseService.getLeadList(id);
+
     if (!list) {
       return res.status(404).json({ error: 'Lead list not found' });
     }
 
-    // Only creator can view permissions
-    if (list.createdBy !== userId) {
-      return res.status(403).json({ error: 'Only list creator can view permissions' });
+    // Only admins or list creators can view permissions
+    if (!isAdmin && list.createdBy !== userId) {
+      return res.status(403).json({ error: 'Only admins can view list permissions' });
     }
 
-    const permissions = await db.getLeadListPermissions(id);
-    res.json(permissions);
+    const shares = await databaseService.getLeadListShares(id);
+    res.json(shares);
   } catch (error) {
     console.error('Get permissions error:', error);
     res.status(500).json({ error: 'Failed to fetch permissions' });
@@ -202,20 +243,65 @@ exports.removePermission = async (req, res) => {
     const { id, permissionId } = req.params;
     const userId = req.userId;
 
-    const list = await db.getLeadList(id);
+    // Get user role to check if admin
+    const user = await databaseService.getUserById(userId);
+    const isAdmin = user?.role === 'admin';
+
+    const list = await databaseService.getLeadList(id);
+
     if (!list) {
       return res.status(404).json({ error: 'Lead list not found' });
     }
 
-    // Only creator can remove permissions
-    if (list.createdBy !== userId) {
-      return res.status(403).json({ error: 'Only list creator can remove permissions' });
+    // Only admins or list creators can remove permissions
+    if (!isAdmin && list.createdBy !== userId) {
+      return res.status(403).json({ error: 'Only admins can remove list permissions' });
     }
 
-    await db.deleteLeadListPermission(permissionId);
+    // permissionId is actually the user_id in the shares table
+    await databaseService.unshareLeadList(id, permissionId, userId);
+
     res.json({ success: true, message: 'Permission removed' });
   } catch (error) {
     console.error('Remove permission error:', error);
     res.status(500).json({ error: 'Failed to remove permission' });
+  }
+};
+
+/**
+ * Remove multiple prospects from a lead list (bulk delete)
+ */
+exports.removeProspects = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.userId;
+    const { prospectIds } = req.body;
+
+    if (!prospectIds || !Array.isArray(prospectIds) || prospectIds.length === 0) {
+      return res.status(400).json({ error: 'prospectIds array is required' });
+    }
+
+    const list = await databaseService.getLeadList(id);
+
+    if (!list) {
+      return res.status(404).json({ error: 'Lead list not found' });
+    }
+
+    // Check if user can edit this list
+    const access = await databaseService.checkUserListAccess(userId, id);
+    if (!access.canEdit) {
+      return res.status(403).json({ error: 'You do not have permission to edit this list' });
+    }
+
+    const removedCount = await databaseService.removeProspectsFromList(id, prospectIds, userId);
+
+    res.json({ 
+      success: true, 
+      message: `Removed ${removedCount} leads from list`,
+      removedCount 
+    });
+  } catch (error) {
+    console.error('Remove prospects error:', error);
+    res.status(500).json({ error: 'Failed to remove prospects from list' });
   }
 };

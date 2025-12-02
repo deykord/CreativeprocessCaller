@@ -21,6 +21,11 @@ let testUserId: string;
 let testProspectId: string;
 let testCallLogId: string;
 
+// Track all created resources for cleanup
+const createdUserIds: string[] = [];
+const createdProspectIds: string[] = [];
+const createdCallLogIds: string[] = [];
+
 // Helper function to make API requests
 async function apiRequest(
   endpoint: string,
@@ -93,6 +98,7 @@ describe('Authentication', () => {
     }
     if (data.user?.id) {
       testUserId = data.user.id;
+      createdUserIds.push(data.user.id);
     }
   });
 
@@ -133,6 +139,7 @@ describe('User Management (Admin)', () => {
     expect([200, 201]).toContain(status);
     expect(data.id || data.user?.id).toBeDefined();
     createdUserId = data.id || data.user?.id;
+    if (createdUserId) createdUserIds.push(createdUserId);
   });
 
   it('should get user by ID', async () => {
@@ -204,6 +211,7 @@ describe('Prospects', () => {
     if (status !== 409) {
       expect(data.id).toBeDefined();
       testProspectId = data.id;
+      createdProspectIds.push(data.id);
     }
   });
 
@@ -341,6 +349,7 @@ describe('Call Logs', () => {
     expect([200, 201]).toContain(status);
     expect(data.id).toBeDefined();
     testCallLogId = data.id;
+    createdCallLogIds.push(data.id);
   });
 
   it('should create call log without prospect ID', async () => {
@@ -355,6 +364,7 @@ describe('Call Logs', () => {
 
     expect([200, 201]).toContain(status);
     expect(data.id).toBeDefined();
+    if (data.id) createdCallLogIds.push(data.id);
   });
 
   it('should create call log without auth (optional auth)', async () => {
@@ -367,6 +377,7 @@ describe('Call Logs', () => {
     const { status, data } = await apiRequest('/calls', 'POST', callLog);
 
     expect([200, 201]).toContain(status);
+    if ((status === 200 || status === 201) && data?.id) createdCallLogIds.push(data.id);
   });
 });
 
@@ -424,6 +435,7 @@ describe('Call Log Deletion (Admin)', () => {
 
     expect([200, 201]).toContain(status);
     deleteTestCallLogId = data.id;
+    // Don't track this one since it's specifically created for deletion test
   });
 
   it('should delete single call log', async () => {
@@ -576,30 +588,40 @@ describe('Prospect Status History', () => {
 });
 
 // ============================================
-// CLEANUP
+// CLEANUP - Delete ALL test data created during tests
 // ============================================
 describe('Cleanup', () => {
-  it('should delete test prospect', async () => {
-    if (!testProspectId) {
-      console.log('Skipping: no test prospect ID');
-      return;
+  it('should delete all test call logs', async () => {
+    console.log(`Cleaning up ${createdCallLogIds.length} call logs...`);
+    for (const id of createdCallLogIds) {
+      try {
+        await apiRequest(`/calls/logs/${id}`, 'DELETE', undefined, adminToken);
+      } catch (err) {
+        // Ignore errors during cleanup
+      }
     }
-
-    const { status } = await apiRequest(`/prospects/${testProspectId}`, 'DELETE', undefined, adminToken);
-
-    expect([200, 204]).toContain(status);
   });
 
-  it('should delete test call log', async () => {
-    if (!testCallLogId) {
-      console.log('Skipping: no test call log ID');
-      return;
+  it('should delete all test prospects', async () => {
+    console.log(`Cleaning up ${createdProspectIds.length} prospects...`);
+    for (const id of createdProspectIds) {
+      try {
+        await apiRequest(`/prospects/${id}`, 'DELETE', undefined, adminToken);
+      } catch (err) {
+        // Ignore errors during cleanup
+      }
     }
+  });
 
-    const { status } = await apiRequest(`/calls/logs/${testCallLogId}`, 'DELETE', undefined, adminToken);
-
-    // May be 200 or 404 if already deleted via cascade
-    expect([200, 404]).toContain(status);
+  it('should delete all test users', async () => {
+    console.log(`Cleaning up ${createdUserIds.length} users...`);
+    for (const id of createdUserIds) {
+      try {
+        await apiRequest(`/auth/users/${id}`, 'DELETE', undefined, adminToken);
+      } catch (err) {
+        // Ignore errors during cleanup
+      }
+    }
   });
 });
 

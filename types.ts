@@ -193,7 +193,10 @@ export interface LeadList {
   name: string;
   description: string;
   createdBy: string;
+  creatorName?: string;
+  isOwner?: boolean;
   prospectIds: string[];
+  prospects?: string[]; // Alias for prospectIds, used in updates
   prospectCount: number;
   createdAt: string;
   updatedAt: string;

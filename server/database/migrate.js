@@ -2,12 +2,11 @@
 
 /**
  * Database migration script
- * Initializes PostgreSQL database and migrates existing in-memory data
+ * Initializes PostgreSQL database schema
  */
 
 const pool = require('../config/database');
 const databaseService = require('../services/databaseService');
-const mockDatabase = require('../services/mockDatabase');
 const bcrypt = require('bcrypt');
 
 async function migrate() {
@@ -27,107 +26,31 @@ async function migrate() {
       }
     }
 
-    // 2. Migrate users
-    console.log('\n2. Migrating users...');
-    const users = mockDatabase.users;
-    const userIdMap = {}; // Old ID -> New UUID mapping
-
-    for (const user of users) {
-      try {
-        // Hash password if not already hashed
-        const hashedPassword = user.password.startsWith('$2b$') 
-          ? user.password 
-          : await bcrypt.hash(user.password, 10);
-
-        const result = await pool.query(
+    // 2. Create default admin user if not exists
+    console.log('\n2. Ensuring default admin user...');
+    try {
+      const adminEmail = 'admin@creativeprocess.io';
+      const existingAdmin = await databaseService.getUserByEmail(adminEmail);
+      
+      if (!existingAdmin) {
+        const hashedPassword = await bcrypt.hash('admin123', 10);
+        await pool.query(
           `INSERT INTO users (email, password, first_name, last_name, role, is_active)
            VALUES ($1, $2, $3, $4, $5, $6)
-           ON CONFLICT (email) DO UPDATE 
-           SET first_name = $3, last_name = $4, role = $5
-           RETURNING id`,
-          [user.email, hashedPassword, user.firstName, user.lastName, user.role, user.isActive]
+           ON CONFLICT (email) DO NOTHING`,
+          [adminEmail, hashedPassword, 'Admin', 'User', 'admin', true]
         );
-        userIdMap[user.id] = result.rows[0].id;
-        console.log(`  ✓ Migrated user: ${user.email}`);
-      } catch (error) {
-        console.error(`  ✗ Error migrating user ${user.email}:`, error.message);
+        console.log('  ✓ Created default admin user');
+        console.log('    Email: admin@creativeprocess.io');
+        console.log('    Password: admin123');
+      } else {
+        console.log('  ✓ Admin user already exists');
       }
-    }
-
-    // 3. Migrate prospects
-    console.log('\n3. Migrating prospects...');
-    const prospects = await mockDatabase.getAllProspects();
-    const prospectIdMap = {}; // Old ID -> New UUID mapping
-
-    for (const prospect of prospects) {
-      try {
-        const result = await pool.query(
-          `INSERT INTO prospects 
-           (first_name, last_name, company, title, phone, email, status, timezone, notes)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-           ON CONFLICT (phone) DO UPDATE
-           SET first_name = $1, last_name = $2, company = $3, title = $4, 
-               email = $6, status = $7, timezone = $8, notes = $9
-           RETURNING id`,
-          [
-            prospect.firstName,
-            prospect.lastName,
-            prospect.company,
-            prospect.title,
-            prospect.phone,
-            prospect.email,
-            prospect.status,
-            prospect.timezone,
-            prospect.notes
-          ]
-        );
-        prospectIdMap[prospect.id] = result.rows[0].id;
-        console.log(`  ✓ Migrated prospect: ${prospect.firstName} ${prospect.lastName}`);
-      } catch (error) {
-        console.error(`  ✗ Error migrating prospect ${prospect.firstName}:`, error.message);
-      }
-    }
-
-    // 4. Migrate call logs
-    console.log('\n4. Migrating call logs...');
-    const callLogs = mockDatabase.callHistory || [];
-
-    for (const log of callLogs) {
-      try {
-        const prospectUuid = prospectIdMap[log.prospectId];
-        const callerUuid = userIdMap['user_1']; // Default to first user
-
-        if (!prospectUuid) {
-          console.log(`  ⚠ Skipping call log - prospect not found: ${log.prospectId}`);
-          continue;
-        }
-
-        await pool.query(
-          `INSERT INTO call_logs 
-           (prospect_id, caller_id, phone_number, from_number, outcome, duration, notes, started_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [
-            prospectUuid,
-            callerUuid,
-            log.phoneNumber,
-            log.fromNumber,
-            log.outcome,
-            log.duration,
-            log.note,
-            log.timestamp
-          ]
-        );
-        console.log(`  ✓ Migrated call log for: ${log.prospectName}`);
-      } catch (error) {
-        console.error(`  ✗ Error migrating call log:`, error.message);
-      }
+    } catch (error) {
+      console.error('  ✗ Error creating admin user:', error.message);
     }
 
     console.log('\n✅ Migration completed successfully!');
-    console.log('\nMigration Summary:');
-    console.log(`  - Users migrated: ${Object.keys(userIdMap).length}`);
-    console.log(`  - Prospects migrated: ${Object.keys(prospectIdMap).length}`);
-    console.log(`  - Call logs migrated: ${callLogs.length}`);
 
   } catch (error) {
     console.error('\n❌ Migration failed:', error);
