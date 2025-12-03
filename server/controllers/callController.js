@@ -34,6 +34,8 @@ exports.logCall = async (req, res) => {
     const userId = req.userId; // From auth middleware
     const { prospectId, prospectName, phoneNumber, fromNumber, outcome, duration, note, notes, callSid, endReason, answeredBy } = req.body;
     
+    console.log(`logCall - userId from auth: ${userId}, phoneNumber: ${phoneNumber}, outcome: ${outcome}`);
+    
     // Check if there's a pending recording for this call
     let recordingUrl = null;
     if (callSid) {

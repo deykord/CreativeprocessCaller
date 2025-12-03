@@ -628,6 +628,32 @@ class DatabaseService {
   }
 
   /**
+   * Get phone number change history for a prospect
+   */
+  async getPhoneNumberHistory(prospectId) {
+    try {
+      const result = await pool.query(
+        `SELECT 
+           al.*,
+           u.first_name as user_first_name,
+           u.last_name as user_last_name,
+           u.email as user_email
+         FROM lead_activity_log al
+         LEFT JOIN users u ON al.user_id = u.id
+         WHERE al.prospect_id = $1 
+           AND al.action_type = 'field_updated'
+           AND al.field_name = 'phone'
+         ORDER BY al.created_at DESC`,
+        [prospectId]
+      );
+      return result.rows;
+    } catch (error) {
+      console.error('Error getting phone number history:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Log prospect creation
    */
   async logProspectCreation(prospectId, userId, prospectData) {

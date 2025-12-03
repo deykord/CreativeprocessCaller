@@ -184,6 +184,22 @@ export const backendAPI = {
     return res.json();
   },
 
+  async getProspectPhoneHistory(prospectId: string): Promise<Array<{
+    id: string;
+    phoneNumber: string;
+    isCurrent: boolean;
+    changedAt: string;
+    changedTo?: string;
+    changedBy?: string;
+    changedByName?: string;
+  }>> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/prospects/${prospectId}/phone-history`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    return res.json();
+  },
+
   // --- Calls ---
 
   async getCallHistory(): Promise<CallLog[]> {

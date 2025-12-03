@@ -12,6 +12,9 @@ router.delete('/:id', controller.deleteProspect);
 router.get('/:id/status-history', controller.getStatusHistory);
 router.get('/:id/call-history', controller.getCallHistory);
 
+// Phone number change history
+router.get('/:id/phone-history', controller.getPhoneHistory);
+
 // Full activity log - everything that happened to a lead
 router.get('/:id/activity-log', controller.getActivityLog);
 

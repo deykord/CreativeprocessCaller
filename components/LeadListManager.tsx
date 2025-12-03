@@ -5,8 +5,8 @@ import { Plus, Trash2, Share2, Eye, Edit, Lock, Users, Upload, FileText, CheckCi
 
 // Define prospect fields that can be mapped
 const PROSPECT_FIELDS = [
-  { key: 'firstName', label: 'First Name', required: true },
-  { key: 'lastName', label: 'Last Name', required: true },
+  { key: 'firstName', label: 'First Name', required: false },
+  { key: 'lastName', label: 'Last Name', required: false },
   { key: 'phone', label: 'Phone', required: true },
   { key: 'email', label: 'Email', required: false },
   { key: 'company', label: 'Company', required: false },

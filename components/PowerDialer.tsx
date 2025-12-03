@@ -213,8 +213,8 @@ const PowerDialer: React.FC<Props> = ({
 
   // Define prospect fields that can be mapped (same as LeadListManager)
   const PROSPECT_FIELDS = [
-    { key: 'firstName', label: 'First Name', required: true },
-    { key: 'lastName', label: 'Last Name', required: true },
+    { key: 'firstName', label: 'First Name', required: false },
+    { key: 'lastName', label: 'Last Name', required: false },
     { key: 'phone', label: 'Phone', required: true },
     { key: 'email', label: 'Email', required: false },
     { key: 'company', label: 'Company', required: false },
@@ -2030,17 +2030,17 @@ const PowerDialer: React.FC<Props> = ({
               {selectedList ? getSelectedListName() : 'All Prospects'}
             </h2>
             <div className="flex items-center gap-3 text-sm">
-              {/* Calls Made */}
+              {/* Called (based on prospect status - anything other than 'New' means called) */}
               <div className="flex items-center gap-1.5 px-2.5 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full">
                 <Phone className="w-3.5 h-3.5" />
-                <span className="font-medium">{calledTodayIds.size}</span>
+                <span className="font-medium">{activeQueue.filter(p => p.status !== 'New').length}</span>
                 <span className="text-green-600 dark:text-green-500 text-xs">called</span>
               </div>
-              {/* Remaining */}
+              {/* Not Called (status is 'New') */}
               <div className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-full">
                 <Users className="w-3.5 h-3.5" />
-                <span className="font-medium">{Math.max(0, activeQueue.length - calledTodayIds.size)}</span>
-                <span className="text-blue-600 dark:text-blue-500 text-xs">remaining</span>
+                <span className="font-medium">{activeQueue.filter(p => p.status === 'New').length}</span>
+                <span className="text-blue-600 dark:text-blue-500 text-xs">not called</span>
               </div>
               {/* Total in list */}
               <span className="text-gray-400 text-xs">

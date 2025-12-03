@@ -129,7 +129,14 @@ exports.getTeamActivity = async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
-    // Get team stats for today
+    // Get total team calls today (including unassigned)
+    const totalCallsQuery = `
+      SELECT COUNT(*) as total FROM call_logs WHERE started_at >= $1
+    `;
+    const totalCallsResult = await pool.query(totalCallsQuery, [today.toISOString()]);
+    const totalTeamCalls = parseInt(totalCallsResult.rows[0].total) || 0;
+    
+    // Get team stats for today (per user)
     const statsQuery = `
       SELECT 
         u.id as "userId",
@@ -147,22 +154,38 @@ exports.getTeamActivity = async (req, res) => {
     
     const statsResult = await pool.query(statsQuery, [today.toISOString()]);
     
-    // Get disposition counts per user
+    // Get disposition counts (including unassigned calls)
     const dispositionsQuery = `
+      SELECT 
+        outcome,
+        COUNT(*) as count
+      FROM call_logs
+      WHERE started_at >= $1 AND outcome IS NOT NULL
+      GROUP BY outcome
+    `;
+    
+    const dispResult = await pool.query(dispositionsQuery, [today.toISOString()]);
+    
+    // Map dispositions to "Team" aggregate
+    const teamDispositions = {};
+    dispResult.rows.forEach((row) => {
+      teamDispositions[row.outcome] = parseInt(row.count);
+    });
+    
+    // Get disposition counts per user (for assigned calls)
+    const userDispositionsQuery = `
       SELECT 
         caller_id as "userId",
         outcome,
         COUNT(*) as count
       FROM call_logs
-      WHERE started_at >= $1 AND outcome IS NOT NULL
+      WHERE started_at >= $1 AND outcome IS NOT NULL AND caller_id IS NOT NULL
       GROUP BY caller_id, outcome
     `;
     
-    const dispResult = await pool.query(dispositionsQuery, [today.toISOString()]);
-    
-    // Map dispositions to users
+    const userDispResult = await pool.query(userDispositionsQuery, [today.toISOString()]);
     const dispositionsByUser = {};
-    dispResult.rows.forEach((row) => {
+    userDispResult.rows.forEach((row) => {
       if (!dispositionsByUser[row.userId]) {
         dispositionsByUser[row.userId] = {};
       }
@@ -185,6 +208,21 @@ exports.getTeamActivity = async (req, res) => {
       statusChangesByUser[row.userId] = parseInt(row.count);
     });
     
+    // Count unassigned calls
+    const unassignedCallsQuery = `
+      SELECT COUNT(*) as count FROM call_logs 
+      WHERE started_at >= $1 AND caller_id IS NULL
+    `;
+    const unassignedResult = await pool.query(unassignedCallsQuery, [today.toISOString()]);
+    const unassignedCalls = parseInt(unassignedResult.rows[0].count) || 0;
+    
+    // Get last activity from any call
+    const lastActivityQuery = `
+      SELECT MAX(started_at) as last FROM call_logs WHERE started_at >= $1
+    `;
+    const lastActivityResult = await pool.query(lastActivityQuery, [today.toISOString()]);
+    const teamLastActivity = lastActivityResult.rows[0].last;
+    
     const teamStats = statsResult.rows.map((row) => ({
       userId: row.userId,
       userName: row.userName || row.email,
@@ -194,7 +232,20 @@ exports.getTeamActivity = async (req, res) => {
       dispositions: dispositionsByUser[row.userId] || {}
     }));
     
-    // Get recent activity logs (last 50 calls)
+    // Add a "Team Total" entry if there are unassigned calls
+    if (unassignedCalls > 0) {
+      teamStats.unshift({
+        userId: 'team-total',
+        userName: '📊 Team Total (includes unassigned)',
+        callsMade: totalTeamCalls,
+        statusChanges: 0,
+        lastActivity: teamLastActivity,
+        dispositions: teamDispositions,
+        isTeamTotal: true
+      });
+    }
+    
+    // Get recent activity logs (last 50 calls - include unassigned)
     const activityQuery = `
       SELECT 
         cl.id,
@@ -208,10 +259,11 @@ exports.getTeamActivity = async (req, res) => {
         END as details,
         cl.started_at as timestamp,
         cl.duration,
-        cl.outcome as disposition
+        cl.outcome as disposition,
+        CASE WHEN cl.caller_id IS NULL THEN true ELSE false END as "isUnassigned"
       FROM call_logs cl
       LEFT JOIN prospects p ON cl.prospect_id = p.id
-      WHERE cl.started_at >= $1 AND cl.caller_id IS NOT NULL
+      WHERE cl.started_at >= $1
       ORDER BY cl.started_at DESC
       LIMIT 50
     `;
@@ -220,7 +272,12 @@ exports.getTeamActivity = async (req, res) => {
     
     res.json({
       teamStats,
-      recentActivity: activityResult.rows
+      recentActivity: activityResult.rows,
+      summary: {
+        totalCalls: totalTeamCalls,
+        assignedCalls: totalTeamCalls - unassignedCalls,
+        unassignedCalls: unassignedCalls
+      }
     });
   } catch (error) {
     console.error('Get team activity error:', error);

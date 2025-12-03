@@ -245,3 +245,57 @@ exports.getActivityLog = async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch activity log' });
   }
 };
+
+/**
+ * Get phone number change history for a prospect
+ * Returns all phone number changes including the current and all previous numbers
+ */
+exports.getPhoneHistory = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get current phone number
+    const prospect = await dbService.getProspectById(id);
+    if (!prospect) {
+      return res.status(404).json({ error: 'Prospect not found' });
+    }
+
+    // Get phone field changes from activity log
+    const phoneChanges = await dbService.getPhoneNumberHistory(id);
+
+    // Build the phone history including current number
+    const history = [];
+    
+    // Add current phone number at the top
+    history.push({
+      id: 'current',
+      phoneNumber: prospect.phone,
+      isCurrent: true,
+      changedAt: prospect.updated_at || prospect.created_at,
+      changedBy: null,
+      changedByName: null
+    });
+
+    // Add all previous phone numbers from activity log
+    phoneChanges.forEach(change => {
+      if (change.old_value && change.old_value !== prospect.phone) {
+        history.push({
+          id: change.id,
+          phoneNumber: change.old_value,
+          isCurrent: false,
+          changedAt: change.created_at,
+          changedTo: change.new_value,
+          changedBy: change.user_id,
+          changedByName: change.user_first_name && change.user_last_name 
+            ? `${change.user_first_name} ${change.user_last_name}` 
+            : change.user_email || 'System'
+        });
+      }
+    });
+
+    res.json(history);
+  } catch (error) {
+    console.error('Get phone history error:', error);
+    res.status(500).json({ error: 'Failed to fetch phone history' });
+  }
+};

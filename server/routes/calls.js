@@ -12,16 +12,19 @@ const optionalAuth = (req, res, next) => {
       const user = authService.verifyToken(token);
       req.userId = user.id;
       req.user = user;
+      console.log(`Auth: User ${user.id} authenticated for ${req.method} ${req.path}`);
+    } else {
+      console.log(`Auth: No token provided for ${req.method} ${req.path}`);
     }
   } catch (error) {
     // Token invalid or missing, continue without user
-    console.log('Optional auth: no valid token');
+    console.log(`Optional auth failed for ${req.method} ${req.path}:`, error.message);
   }
   next();
 };
 
 router.get('/', optionalAuth, controller.getCallHistory);
-router.post('/', optionalAuth, controller.logCall);
+router.post('/', authMiddleware, controller.logCall);  // Require auth to log calls
 router.get('/stats', optionalAuth, controller.getStats);
 
 // Call log delete routes (admin only)
