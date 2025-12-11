@@ -78,6 +78,11 @@ const PowerDialer: React.FC<Props> = ({
   const [twilioCallStatus, setTwilioCallStatus] = useState<TwilioCallStatus | null>(null);
   const callStatusPollRef = useRef<NodeJS.Timeout | null>(null);
   
+  // Stuck call detection
+  const [callStartedAt, setCallStartedAt] = useState<number | null>(null);
+  const [isCallStuck, setIsCallStuck] = useState(false);
+  const STUCK_CALL_THRESHOLD = 60000; // 60 seconds without progress = stuck
+  
   // UI States
   const [activeTab, setActiveTab] = useState<'details' | 'history'>('details');
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
@@ -390,12 +395,117 @@ const PowerDialer: React.FC<Props> = ({
     }
   }, []);
 
+  // Stuck call detection - check if call has been in dialing/ringing/in-progress for too long
+  useEffect(() => {
+    if (!isActive || isPaused) {
+      setCallStartedAt(null);
+      setIsCallStuck(false);
+      return;
+    }
+    
+    // Track when call started
+    if (['dialing', 'ringing', 'in-progress', 'connected'].includes(callStatus) && !callStartedAt) {
+      setCallStartedAt(Date.now());
+    }
+    
+    // Reset when call ends
+    if (['ended', 'completed', 'idle'].includes(callStatus)) {
+      setCallStartedAt(null);
+      setIsCallStuck(false);
+    }
+  }, [isActive, isPaused, callStatus, callStartedAt]);
+
+  // Check for stuck calls every 5 seconds
+  useEffect(() => {
+    if (!callStartedAt || !isActive || isPaused) return;
+    
+    const checkStuck = setInterval(() => {
+      const elapsed = Date.now() - callStartedAt;
+      // Only mark as stuck if we're still in a calling state and timer hasn't progressed much
+      if (elapsed > STUCK_CALL_THRESHOLD && ['dialing', 'ringing', 'in-progress', 'connected'].includes(callStatus)) {
+        // If in-progress/connected but timer is still 0-2 seconds, likely stuck
+        if (['in-progress', 'connected'].includes(callStatus) && callTimer < 3) {
+          setIsCallStuck(true);
+        } else if (['dialing', 'ringing'].includes(callStatus)) {
+          setIsCallStuck(true);
+        }
+      }
+    }, 5000);
+    
+    return () => clearInterval(checkStuck);
+  }, [callStartedAt, isActive, isPaused, callStatus, callTimer]);
+
+  // Skip stuck call - force end and move to next
+  const handleSkipStuckCall = useCallback(async () => {
+    console.log('Skipping stuck call');
+    
+    // Stop polling
+    stopCallStatusPolling();
+    
+    // Try to disconnect
+    try {
+      liveTwilioService.disconnect();
+    } catch (e) {
+      console.warn('Error disconnecting:', e);
+    }
+    
+    // End via API if we have a callSid
+    if (currentCallSid) {
+      try {
+        await backendAPI.endCall(currentCallSid);
+      } catch (e) {
+        console.warn('Error ending call via API:', e);
+      }
+    }
+    
+    // Reset states
+    setCallStatus('ended');
+    setIsCallStuck(false);
+    setCallStartedAt(null);
+    setCallTimer(0);
+    setCurrentCallSid(null);
+    setCallEndReason(CallEndReason.FAILED);
+    
+    // Auto-disposition as failed/no answer
+    const currentProspect = activeQueue[currentIndex];
+    if (currentProspect) {
+      setCallDispositions(prev => ({ ...prev, [currentProspect.id]: 'No Answer' }));
+      
+      // Log the failed call
+      try {
+        await backendAPI.logCall({
+          prospectName: `${currentProspect.firstName} ${currentProspect.lastName}`,
+          phoneNumber: currentProspect.phone,
+          duration: 0,
+          outcome: 'No Answer',
+          note: 'Call skipped - connection issue',
+          fromNumber: callFromNumber,
+          timestamp: new Date().toISOString(),
+          prospectId: currentProspect.id,
+          endReason: CallEndReason.FAILED,
+          callSid: currentCallSid || undefined
+        });
+      } catch (e) {
+        console.error('Failed to log skipped call:', e);
+      }
+      
+      // Advance to next
+      if (setDispositionSaved) {
+        setDispositionSaved(true);
+      }
+    }
+  }, [currentCallSid, activeQueue, currentIndex, callFromNumber, stopCallStatusPolling, setDispositionSaved]);
+
   const handleQuickDisposition = async (disp: DispositionType) => {
     const currentProspect = activeQueue[currentIndex];
     if (!currentProspect) return;
 
     setCallDispositions(prev => ({ ...prev, [currentProspect.id]: disp }));
     setCallStatus('ended');
+    
+    // Reset stuck call state
+    setIsCallStuck(false);
+    setCallStartedAt(null);
     
     // Mark as called today immediately (real-time update)
     setCalledTodayIds(prev => new Set([...prev, currentProspect.id]));
@@ -2440,10 +2550,18 @@ const PowerDialer: React.FC<Props> = ({
                   {(() => {
                     const statusDisplay = getCallStatusDisplay();
                     return (
-                      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${statusDisplay.className}`}>
-                        {statusDisplay.icon}
-                        {statusDisplay.text}
-                      </span>
+                      <div className="flex flex-col gap-1">
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${statusDisplay.className}`}>
+                          {statusDisplay.icon}
+                          {statusDisplay.text}
+                        </span>
+                        {isCallStuck && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-400 animate-pulse">
+                            <AlertTriangle className="w-3 h-3" />
+                            Connection issue
+                          </span>
+                        )}
+                      </div>
                     );
                   })()}
                 </div>
@@ -2553,6 +2671,17 @@ const PowerDialer: React.FC<Props> = ({
                           <PhoneOff className="w-4 h-4" />
                           End Call
                         </button>
+                        {/* Skip Stuck Call Button - shows when call appears stuck */}
+                        {isCallStuck && (
+                          <button 
+                            onClick={handleSkipStuckCall}
+                            className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-md text-sm font-medium flex items-center gap-2 animate-pulse"
+                            title="Call appears stuck - skip and move to next"
+                          >
+                            <AlertTriangle className="w-4 h-4" />
+                            Skip Stuck
+                          </button>
+                        )}
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">

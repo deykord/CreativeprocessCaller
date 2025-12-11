@@ -740,5 +740,80 @@ export const backendAPI = {
       const error = await res.json();
       throw new Error(error.error || `Failed to log voicemail drop: ${res.status}`);
     }
+  },
+
+  // --- Dashboard Stats ---
+
+  async getDashboardStats(period: 'today' | 'week' | 'month' | 'all' = 'today', userId?: string): Promise<{
+    callsMade: number;
+    connections: number;
+    appointmentsSet: number;
+    talkTime: number;
+    prospects: {
+      total: number;
+      new: number;
+      contacted: number;
+      qualified: number;
+      lost: number;
+    };
+    recentCalls: Array<{
+      id: string;
+      prospectId: string;
+      prospectName: string;
+      company: string;
+      outcome: string;
+      duration: number;
+      timestamp: string;
+      notes: string;
+    }>;
+  }> {
+    const token = localStorage.getItem('authToken');
+    const params = new URLSearchParams({ period });
+    if (userId) params.append('userId', userId);
+    
+    const res = await fetch(`${API_BASE_URL}/dashboard/stats?${params}`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch dashboard stats: ${res.status}`);
+    }
+    const data = await res.json();
+    return data.stats;
+  },
+
+  async getTeamDashboardStats(period: 'today' | 'week' | 'month' | 'all' = 'today'): Promise<{
+    callsMade: number;
+    connections: number;
+    appointmentsSet: number;
+    talkTime: number;
+    prospects: {
+      total: number;
+      new: number;
+      contacted: number;
+      qualified: number;
+      lost: number;
+    };
+    recentCalls: Array<{
+      id: string;
+      prospectId: string;
+      prospectName: string;
+      company: string;
+      outcome: string;
+      duration: number;
+      timestamp: string;
+      notes: string;
+    }>;
+  }> {
+    const token = localStorage.getItem('authToken');
+    const params = new URLSearchParams({ period });
+    
+    const res = await fetch(`${API_BASE_URL}/dashboard/stats/team?${params}`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch team dashboard stats: ${res.status}`);
+    }
+    const data = await res.json();
+    return data.stats;
   }
 };

@@ -1402,6 +1402,109 @@ class DatabaseService {
   }
 
   /**
+   * Get dashboard stats - real data from database
+   * @param {string} userId - Optional user ID to filter by
+   * @param {string} period - 'today', 'week', 'month', 'all'
+   */
+  async getDashboardStats(userId = null, period = 'today') {
+    try {
+      let dateFilter = '';
+      switch (period) {
+        case 'today':
+          dateFilter = "AND cl.started_at >= CURRENT_DATE";
+          break;
+        case 'week':
+          dateFilter = "AND cl.started_at >= CURRENT_DATE - INTERVAL '7 days'";
+          break;
+        case 'month':
+          dateFilter = "AND cl.started_at >= CURRENT_DATE - INTERVAL '30 days'";
+          break;
+        default:
+          dateFilter = '';
+      }
+
+      const userFilter = userId ? 'AND cl.caller_id = $1' : '';
+      const params = userId ? [userId] : [];
+
+      // Get call stats
+      const callStatsQuery = `
+        SELECT 
+          COUNT(*) as total_calls,
+          COUNT(CASE WHEN cl.outcome IN ('Connected', 'Appointment Set', 'Callback Scheduled', 'Interested') THEN 1 END) as connections,
+          COUNT(CASE WHEN cl.outcome = 'Appointment Set' THEN 1 END) as appointments,
+          COALESCE(SUM(cl.duration), 0) as total_duration_seconds
+        FROM call_logs cl
+        WHERE 1=1 ${dateFilter} ${userFilter}
+      `;
+      
+      const callStats = await pool.query(callStatsQuery, params);
+      const stats = callStats.rows[0];
+
+      // Get prospect stats
+      const prospectStatsQuery = `
+        SELECT 
+          COUNT(*) as total_prospects,
+          COUNT(CASE WHEN status = 'New' THEN 1 END) as new_leads,
+          COUNT(CASE WHEN status = 'Contacted' THEN 1 END) as contacted,
+          COUNT(CASE WHEN status = 'Qualified' THEN 1 END) as qualified,
+          COUNT(CASE WHEN status = 'Lost' THEN 1 END) as lost
+        FROM prospects
+      `;
+      const prospectStats = await pool.query(prospectStatsQuery);
+      const prospects = prospectStats.rows[0];
+
+      // Get recent calls
+      const recentCallsQuery = `
+        SELECT 
+          cl.id,
+          cl.prospect_id,
+          cl.outcome,
+          cl.duration,
+          cl.started_at,
+          cl.notes,
+          COALESCE(p.first_name || ' ' || p.last_name, 'Unknown') as prospect_name,
+          p.company
+        FROM call_logs cl
+        LEFT JOIN prospects p ON cl.prospect_id = p.id
+        WHERE 1=1 ${dateFilter} ${userFilter}
+        ORDER BY cl.started_at DESC
+        LIMIT 10
+      `;
+      const recentCalls = await pool.query(recentCallsQuery, params);
+
+      // Calculate talk time in minutes
+      const talkTimeMinutes = Math.round(parseInt(stats.total_duration_seconds || 0) / 60);
+
+      return {
+        callsMade: parseInt(stats.total_calls) || 0,
+        connections: parseInt(stats.connections) || 0,
+        appointmentsSet: parseInt(stats.appointments) || 0,
+        talkTime: talkTimeMinutes,
+        prospects: {
+          total: parseInt(prospects.total_prospects) || 0,
+          new: parseInt(prospects.new_leads) || 0,
+          contacted: parseInt(prospects.contacted) || 0,
+          qualified: parseInt(prospects.qualified) || 0,
+          lost: parseInt(prospects.lost) || 0
+        },
+        recentCalls: recentCalls.rows.map(call => ({
+          id: call.id,
+          prospectId: call.prospect_id,
+          prospectName: call.prospect_name,
+          company: call.company,
+          outcome: call.outcome,
+          duration: call.duration || 0,
+          timestamp: call.started_at,
+          notes: call.notes
+        }))
+      };
+    } catch (error) {
+      console.error('Error getting dashboard stats:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Initialize default admin user if none exists
    */
   async ensureAdminUser() {

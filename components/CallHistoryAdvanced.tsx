@@ -49,7 +49,46 @@ interface FilterState {
   answeredBy: string[];
 }
 
-const OUTCOMES = ['Connected', 'Meeting Set', 'Voicemail', 'Busy', 'No Answer', 'Not Interested', 'Callback', 'Wrong Number'];
+// Orum-style Call Dispositions - matching PowerDialer
+const OUTCOMES = [
+  // Not Contacted - No Conversation
+  'No Answer',
+  'Left Voicemail',
+  'Went to Voicemail',
+  'Busy Signal',
+  'Bad Number',
+  'False Positive',
+  // Contacted - Gatekeeper
+  'Gatekeeper: Did not Transfer',
+  'Gatekeeper transferred: Did not leave VM',
+  'Gatekeeper transferred: Left VM',
+  // Contacted - Negative/Rejection
+  'Hang Up',
+  'Hook Rejected',
+  'Elevator Pitch Rejected',
+  // Contacted - Objections
+  'Objection: Already Have a Solution',
+  'Objection: Asked to Send Info',
+  'Objection: Not a Priority',
+  'Objection: Other',
+  // Contacted - Wrong Person
+  'Wrong Person: Gave Referral',
+  'Wrong Person: No referral',
+  'Person Left Company',
+  // Contacted - Follow Up
+  'Follow-Up Required',
+  'Busy: Call Later',
+  'Reach back out in X time',
+  // Contacted - Positive Outcome
+  'Meeting Scheduled',
+  // Legacy outcomes for backward compatibility
+  'Connected',
+  'Voicemail',
+  'Busy',
+  'Not Interested',
+  'Callback',
+  'Wrong Number',
+];
 const ANSWERED_BY_OPTIONS = ['human', 'machine', 'unknown'];
 
 const DEFAULT_COLUMNS = ['timestamp', 'prospectName', 'phoneNumber', 'duration', 'outcome', 'callerName', 'note', 'recording'];

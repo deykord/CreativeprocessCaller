@@ -1,11 +1,36 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { AgentStats, Prospect, CallLog } from '../types';
-import { Phone, CheckCircle, Clock, Calendar, TrendingUp, Target, BarChart3, Zap, Award, AlertCircle } from 'lucide-react';
+import { Phone, CheckCircle, Clock, Calendar, TrendingUp, Target, BarChart3, Zap, Award, AlertCircle, RefreshCw } from 'lucide-react';
+import { backendAPI } from '../services/BackendAPI';
 
 interface Props {
   stats: AgentStats;
   prospects: Prospect[];
   callHistory: CallLog[];
+}
+
+interface DashboardStats {
+  callsMade: number;
+  connections: number;
+  appointmentsSet: number;
+  talkTime: number;
+  prospects: {
+    total: number;
+    new: number;
+    contacted: number;
+    qualified: number;
+    lost: number;
+  };
+  recentCalls: Array<{
+    id: string;
+    prospectId: string;
+    prospectName: string;
+    company: string;
+    outcome: string;
+    duration: number;
+    timestamp: string;
+    notes: string;
+  }>;
 }
 
 // Memoized stat card to prevent re-renders
@@ -212,16 +237,104 @@ const InsightsSection: React.FC<{ prospects: Prospect[] }> = React.memo(({ prosp
   );
 });
 
-export const DashboardEnhanced: React.FC<Props> = React.memo(({ stats, prospects, callHistory }) => {
+export const DashboardEnhanced: React.FC<Props> = React.memo(({ stats: propStats, prospects: propProspects, callHistory: propCallHistory }) => {
+  const [dbStats, setDbStats] = useState<DashboardStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [period, setPeriod] = useState<'today' | 'week' | 'month' | 'all'>('today');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Fetch dashboard stats from database
+  const fetchStats = useCallback(async () => {
+    try {
+      setIsRefreshing(true);
+      const data = await backendAPI.getDashboardStats(period);
+      setDbStats(data);
+      setLastRefresh(new Date());
+    } catch (error) {
+      console.error('Error fetching dashboard stats:', error);
+      // Fall back to prop stats if API fails
+    } finally {
+      setLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [period]);
+
+  // Initial fetch and auto-refresh every 30 seconds
+  useEffect(() => {
+    fetchStats();
+    const interval = setInterval(fetchStats, 30000); // 30 seconds
+    return () => clearInterval(interval);
+  }, [fetchStats]);
+
+  // Use database stats if available, otherwise fall back to props
+  const stats: AgentStats = dbStats ? {
+    callsMade: dbStats.callsMade,
+    connections: dbStats.connections,
+    appointmentsSet: dbStats.appointmentsSet,
+    talkTime: dbStats.talkTime
+  } : propStats;
+
+  const prospects = propProspects;
+  
+  // Use database recent calls if available
+  const recentCalls = dbStats?.recentCalls?.map(call => ({
+    id: call.id,
+    prospectId: call.prospectId,
+    prospectName: call.prospectName,
+    outcome: call.outcome,
+    duration: call.duration,
+    timestamp: call.timestamp,
+    notes: call.notes
+  })) || propCallHistory;
+
   const statCards = useMemo(() => [
-    { title: "Calls Made", value: stats.callsMade, icon: <Phone size={20} />, color: "bg-blue-500", trend: 5, label: "vs yesterday" },
-    { title: "Connections", value: stats.connections, icon: <CheckCircle size={20} />, color: "bg-green-500", trend: 8, label: "vs yesterday" },
-    { title: "Appointments", value: stats.appointmentsSet, icon: <Calendar size={20} />, color: "bg-purple-500", trend: 3, label: "vs yesterday" },
-    { title: "Talk Time (m)", value: stats.talkTime, icon: <Clock size={20} />, color: "bg-orange-500", trend: -2, label: "vs yesterday" }
+    { title: "Calls Made", value: stats.callsMade, icon: <Phone size={20} />, color: "bg-blue-500" },
+    { title: "Connections", value: stats.connections, icon: <CheckCircle size={20} />, color: "bg-green-500" },
+    { title: "Appointments", value: stats.appointmentsSet, icon: <Calendar size={20} />, color: "bg-purple-500" },
+    { title: "Talk Time (m)", value: stats.talkTime, icon: <Clock size={20} />, color: "bg-orange-500" }
   ], [stats.callsMade, stats.connections, stats.appointmentsSet, stats.talkTime]);
+
+  // Pipeline insights from database
+  const pipelineInsights = dbStats?.prospects || {
+    total: propProspects.length,
+    new: propProspects.filter(p => p.status === 'New').length,
+    contacted: propProspects.filter(p => p.status === 'Contacted').length,
+    qualified: propProspects.filter(p => p.status === 'Qualified').length,
+    lost: propProspects.filter(p => p.status === 'Lost').length
+  };
 
   return (
     <div className="space-y-6">
+      {/* Header with period selector and refresh */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <select 
+            value={period} 
+            onChange={(e) => setPeriod(e.target.value as 'today' | 'week' | 'month' | 'all')}
+            className="px-3 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="today">Today</option>
+            <option value="week">This Week</option>
+            <option value="month">This Month</option>
+            <option value="all">All Time</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            Last updated: {lastRefresh.toLocaleTimeString()}
+          </span>
+          <button
+            onClick={fetchStats}
+            disabled={isRefreshing}
+            className="flex items-center gap-2 px-3 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-400 text-white rounded-lg text-sm font-medium transition-colors"
+          >
+            <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
       {/* Primary Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((card, idx) => (
@@ -235,28 +348,61 @@ export const DashboardEnhanced: React.FC<Props> = React.memo(({ stats, prospects
         <GoalsSection stats={stats} />
       </div>
 
-      {/* FEATURE 3 & 4: Achievements and Insights */}
+      {/* FEATURE 3 & 4: Achievements and Pipeline Insights */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <AchievementsSection stats={stats} />
-        <InsightsSection prospects={prospects} />
+        
+        {/* Pipeline Insights from Database */}
+        <div className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 p-6 rounded-xl border border-emerald-200 dark:border-emerald-900/50">
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+            <AlertCircle size={20} className="text-emerald-600 dark:text-emerald-400" />
+            Pipeline Insights
+          </h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-white dark:bg-slate-800 p-4 rounded-lg">
+              <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">New Leads</p>
+              <p className="text-2xl font-bold text-blue-600 dark:text-blue-400 mt-2">{pipelineInsights.new}</p>
+            </div>
+            <div className="bg-white dark:bg-slate-800 p-4 rounded-lg">
+              <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">Contacted</p>
+              <p className="text-2xl font-bold text-purple-600 dark:text-purple-400 mt-2">{pipelineInsights.contacted}</p>
+            </div>
+            <div className="bg-white dark:bg-slate-800 p-4 rounded-lg">
+              <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">Qualified</p>
+              <p className="text-2xl font-bold text-green-600 dark:text-green-400 mt-2">{pipelineInsights.qualified}</p>
+            </div>
+            <div className="bg-white dark:bg-slate-800 p-4 rounded-lg">
+              <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">Total Leads</p>
+              <p className="text-2xl font-bold text-orange-600 dark:text-orange-400 mt-2">{pipelineInsights.total}</p>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* FEATURE 5: Recent Activity Summary */}
+      {/* FEATURE 5: Recent Activity Summary - from database */}
       <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700">
         <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Recent Activity</h3>
         <div className="space-y-3 max-h-64 overflow-y-auto">
-          {callHistory.slice(0, 5).map((call, idx) => (
-            <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-slate-700/50 rounded-lg">
-              <div>
-                <p className="text-sm font-medium text-gray-900 dark:text-white">{call.prospectName}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{call.outcome}</p>
+          {recentCalls.length === 0 ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No recent calls</p>
+          ) : (
+            recentCalls.slice(0, 10).map((call: any, idx: number) => (
+              <div key={call.id || idx} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-slate-700/50 rounded-lg">
+                <div>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">{call.prospectName}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{call.outcome || 'No outcome'}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                    {Math.floor((call.duration || 0) / 60)}m {(call.duration || 0) % 60}s
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {call.timestamp ? new Date(call.timestamp).toLocaleTimeString() : ''}
+                  </p>
+                </div>
               </div>
-              <div className="text-right">
-                <p className="text-sm font-semibold text-gray-900 dark:text-white">{Math.floor(call.duration / 60)}m {call.duration % 60}s</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{new Date(call.timestamp).toLocaleTimeString()}</p>
-              </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
     </div>

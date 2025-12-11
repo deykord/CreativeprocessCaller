@@ -73,7 +73,10 @@ exports.handleTwilioNumbers = async (req, res) => {
 exports.handleVoiceRequest = async (req, res) => {
   const To = req.body.To;
   const callIdFromRequest = req.body.callerId; // May be passed from browser
-  // const From = req.body.From; 
+  const parentCallSid = req.body.CallSid; // Parent call SID from Twilio
+
+  console.log('========== VOICE REQUEST ==========');
+  console.log('Request body:', JSON.stringify(req.body, null, 2));
 
   const response = new VoiceResponse();
 
@@ -94,10 +97,13 @@ exports.handleVoiceRequest = async (req, res) => {
     }
 
     console.log('Making outbound call with Caller ID:', callerId, 'To:', To);
+    console.log('Parent CallSid:', parentCallSid);
 
     // Use absolute URLs for Twilio webhooks
     const serverUrl = config.serverUrl || 'https://salescallagent.my';
     
+    // Track the parent call status (browser -> Twilio)
+    // The dial statusCallback only tracks child calls (Twilio -> phone)
     const dial = response.dial({
       callerId: callerId,
       record: 'record-from-answer',
@@ -105,27 +111,41 @@ exports.handleVoiceRequest = async (req, res) => {
       recordingStatusCallbackEvent: ['completed'],
       statusCallback: `${serverUrl}/api/voice/status`,
       statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+      statusCallbackMethod: 'POST',
+      timeout: 30, // Ring for 30 seconds max before giving up
+      answerOnBridge: true, // Wait until callee picks up before connecting audio
     });
 
     // Check if 'To' is a phone number (simple regex for E.164 or US formats)
     if (/^[\d\+\-\(\) ]+$/.test(To)) {
-      dial.number(To);
+      dial.number({
+        statusCallback: `${serverUrl}/api/voice/status`,
+        statusCallbackEvent: 'initiated ringing answered completed',
+        statusCallbackMethod: 'POST'
+      }, To);
     } else {
       // If it's not a number, assume it's a client name (Agent-to-Agent)
       dial.client(To);
     }
+
+    const twiml = response.toString();
+    console.log('Generated TwiML:', twiml);
+    res.type('text/xml');
+    res.send(twiml);
   } else {
     // Inbound call to the Twilio Number
     response.say('Thank you for calling Creative Process IO. Connecting you to an agent.');
     const dial = response.dial();
     dial.client('agent_1'); // Hardcoded for demo, normally dynamic based on availability
+    res.type('text/xml');
+    res.send(response.toString());
   }
-
-  res.type('text/xml');
-  res.send(response.toString());
 };
 
 exports.handleCallStatus = async (req, res) => {
+  console.log('========== STATUS WEBHOOK RECEIVED ==========');
+  console.log('Full body:', JSON.stringify(req.body, null, 2));
+  
   const {
     CallSid,
     CallStatus,
@@ -136,10 +156,11 @@ exports.handleCallStatus = async (req, res) => {
     Timestamp,
     AnsweredBy,
     SipResponseCode,
-    CalledVia
+    CalledVia,
+    ParentCallSid // For child calls, this links to the parent
   } = req.body;
 
-  console.log(`Webhook: Call ${CallSid} status=${CallStatus}, duration=${CallDuration}, answeredBy=${AnsweredBy}`);
+  console.log(`Webhook: Call ${CallSid} status=${CallStatus}, duration=${CallDuration}, answeredBy=${AnsweredBy}, parentSid=${ParentCallSid}`);
   
   // Determine call end reason
   const endReason = getCallEndReason(CallStatus, parseInt(SipResponseCode) || null, AnsweredBy);

@@ -4,8 +4,8 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
-    // Use /dev/ base path for dev deployment
-    const base = process.env.BUILD_BASE || '/dev/';
+    // Use / base path for production
+    const base = process.env.BUILD_BASE || '/';
     return {
       base,
       server: {

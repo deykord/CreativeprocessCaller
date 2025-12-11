@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+simport React, { useState, useEffect, useRef } from 'react';
 import { 
   MessageSquare, Send, Users, Bug, Image, X, Check, 
   AlertCircle, Paperclip, Trash2, ChevronDown, User as UserIcon,
