@@ -335,7 +335,8 @@ const Training: React.FC = () => {
         body: JSON.stringify({
           text: text,
           scenario: scenario.id,
-          voice: selectedVoice  // Use user-selected voice
+          voice: selectedVoice,  // Use user-selected voice
+          sessionId: conversationSessionId  // Track TTS usage per session
         })
       });
 

@@ -14,7 +14,7 @@ import { SalesFloor } from './components/SalesFloor';
 import Messages from './components/Messages';
 import { Prospect, CallState, AgentStats, CallLog, User, TwilioPhoneNumber } from './types';
 import { INITIAL_PROSPECTS, INITIAL_STATS } from './constants';
-import { LayoutGrid, Users, Phone, Settings as SettingsIcon, LogOut, Bell, History, Zap, Keyboard, Sun, Moon, List, Activity, MessageSquare, GraduationCap } from 'lucide-react';
+import { LayoutGrid, Users, Phone, Settings as SettingsIcon, LogOut, Bell, History, Zap, Keyboard, Sun, Moon, List, Activity, MessageSquare, GraduationCap, Shield } from 'lucide-react';
 
 // SERVICES
 import { voiceService } from './services/VoiceService';
@@ -24,6 +24,7 @@ import { backendAPI } from './services/BackendAPI';
 const LeadListManager = React.lazy(() => import('./components/LeadListManager').then(m => ({ default: m.LeadListManager })));
 const TeamManagement = React.lazy(() => import('./components/TeamManagement').then(m => ({ default: m.TeamManagement })));
 const Training = React.lazy(() => import('./components/Training'));
+const AdminDashboard = React.lazy(() => import('./components/AdminDashboard'));
 
 // Loading fallback component
 const LoadingSpinner = () => (
@@ -37,7 +38,7 @@ const USE_BACKEND = true;
 const activeVoiceService = voiceService;
 
 
-type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'history' | 'settings' | 'team-management' | 'profile' | 'lead-lists' | 'sales-floor' | 'messages' | 'training';
+type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'history' | 'settings' | 'team-management' | 'profile' | 'lead-lists' | 'sales-floor' | 'messages' | 'training' | 'admin-dashboard';
 
 const Dashboard: React.FC = () => {
     const [powerDialerDispositionSaved, setPowerDialerDispositionSaved] = useState(false);
@@ -506,6 +507,8 @@ const Dashboard: React.FC = () => {
         return <Messages currentUser={user} />;
       case 'training':
         return <Suspense fallback={<LoadingSpinner />}><Training /></Suspense>;
+      case 'admin-dashboard':
+        return <Suspense fallback={<LoadingSpinner />}><AdminDashboard /></Suspense>;
       default:
         return <div>View not found</div>;
     }
@@ -607,6 +610,12 @@ const Dashboard: React.FC = () => {
             {user?.role === 'admin' && (
               <>
                 <div className="my-2 border-t border-slate-700"></div>
+                <NavItem 
+                  icon={<Shield size={20} />} 
+                  label="Admin Dashboard" 
+                  active={currentView === 'admin-dashboard'} 
+                  onClick={() => setCurrentView('admin-dashboard')} 
+                />
                 <NavItem 
                   icon={<Users size={20} />} 
                   label="Team Management" 

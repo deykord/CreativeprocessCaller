@@ -14,6 +14,7 @@ const salesFloorRoutes = require('./salesFloor');
 const voicemailRoutes = require('./voicemails');
 const dashboardRoutes = require('./dashboard');
 const trainingRoutes = require('./training');
+const adminRoutes = require('./admin');
 
 router.use('/auth', authRoutes);
 router.use('/token', tokenRoutes);
@@ -28,6 +29,7 @@ router.use('/sales-floor', salesFloorRoutes);
 router.use('/voicemails', voicemailRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/training', trainingRoutes);
+router.use('/admin', adminRoutes);
 
 // Alias for recordings upload (frontend posts to /api/recordings/upload)
 router.post('/recordings/upload', require('../controllers/callController').uploadRecording);

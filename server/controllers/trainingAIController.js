@@ -29,6 +29,29 @@ const getVoices = async (req, res) => {
   res.json({ success: true, voices: AVAILABLE_VOICES });
 };
 
+// Greetings for each scenario - AI picks up the phone
+const SCENARIO_GREETINGS = {
+  // Decision Makers - more natural, casual greetings
+  'cold-cfo': "Yeah, this is David. I've got like 3 minutes, what's up?",
+  'cold-ceo': "Michael Torres. I don't know this number... who's this?",
+  'cold-it-director': "IT, James speaking. How'd you get this line?",
+  'cold-ops-manager': "Hey, Sandra here. Is this a sales thing? I'm kinda swamped.",
+  'cold-small-biz': "Yeah hello? Thompson Auto, this is Mike. Hang on... YEAH GIMME A SEC! Okay, what do you need?",
+  
+  // Gatekeepers
+  'gk-executive-asst': "Mr. Harrison's office, this is Patricia. How can I help you?",
+  'gk-receptionist': "Hi, thanks for calling Apex Industries! This is Jennifer. Who are you trying to reach?",
+  'gk-voicemail': "Hey, you've reached Rob Martinez. Leave me a message and I'll get back to you. BEEP.",
+  
+  // Objection Scenarios - more conversational
+  'obj-budget-freeze': "Oh yeah, I got your email. Look, I gotta be upfront, we froze all spending til Q2. CFO's orders.",
+  'obj-bad-experience': "Oh, you're selling that? Yeah... we tried something like that about a year and a half ago. Total disaster honestly.",
+  'obj-committee': "Okay so here's the thing. I might see value but, I can't decide this alone. Anything over 5K needs like three approvals.",
+  'obj-contract-locked': "I appreciate you reaching out, but, we just renewed with Salesforce. Locked in for like 22 more months.",
+  'obj-no-need': "Hmm, I'm not really sure why you're calling us? We've been fine for 15 years without this kind of thing.",
+  'obj-send-info': "Yeah sure, just uh, send me something to my email? I'll look at it when I get a chance."
+};
+
 // Start a new training session (saves to DB)
 const startSession = async (req, res) => {
   const { scenarioId, scenarioName, voiceId } = req.body;
@@ -49,13 +72,20 @@ const startSession = async (req, res) => {
     // This ensures the conversation starts fresh
     conversationHistory.delete(session.id);
     
-    // Initialize a fresh conversation for this session
+    // Get the greeting for this scenario (AI answers the phone first)
+    const greeting = SCENARIO_GREETINGS[scenarioId] || "Hello, how can I help you?";
+    console.log('📞 AI greeting (picked up phone):', greeting);
+    
+    // Initialize a fresh conversation WITH the greeting as first message
+    // This way AI knows it already answered the phone
     conversationHistory.set(session.id, {
-      messages: [],
+      messages: [
+        { role: 'assistant', content: greeting }
+      ],
       topics_discussed: [],
       lastUpdated: Date.now()
     });
-    console.log('🔄 Initialized fresh conversation for session:', session.id);
+    console.log('🔄 Initialized fresh conversation with greeting for session:', session.id);
     
     res.json({ 
       success: true, 
@@ -241,6 +271,14 @@ ${conversationSummary}`
 
     const data = await response.json();
     const aiResponse = data.choices[0].message.content.trim();
+    
+    // Track usage for cost calculation
+    const usage = data.usage || {};
+    const inputTokens = usage.prompt_tokens || 0;
+    const outputTokens = usage.completion_tokens || 0;
+    
+    // GPT-4o-mini pricing: $0.15/1M input, $0.60/1M output
+    const costUsd = (inputTokens * 0.00000015) + (outputTokens * 0.0000006);
 
     // Add AI response to history (memory)
     conversation.messages.push({
@@ -250,21 +288,31 @@ ${conversationSummary}`
     
     console.log('✅ AI response generated:', aiResponse);
     console.log('📝 Conversation now has', conversation.messages.length, 'messages');
+    console.log('💰 Tokens used:', inputTokens, 'in /', outputTokens, 'out = $', costUsd.toFixed(6));
 
     // Save messages to database if we have a valid session ID (UUID format)
     if (sessionId && sessionId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
       try {
         // Save user message
         await pool.query(
-          'INSERT INTO training_messages (session_id, role, content) VALUES ($1, $2, $3)',
-          [sessionId, 'user', userMessage]
+          'INSERT INTO training_messages (session_id, role, content, tokens_used, cost_usd) VALUES ($1, $2, $3, $4, $5)',
+          [sessionId, 'user', userMessage, 0, 0]
         );
-        // Save AI response
+        // Save AI response with usage stats
         await pool.query(
-          'INSERT INTO training_messages (session_id, role, content) VALUES ($1, $2, $3)',
-          [sessionId, 'assistant', aiResponse]
+          'INSERT INTO training_messages (session_id, role, content, tokens_used, cost_usd) VALUES ($1, $2, $3, $4, $5)',
+          [sessionId, 'assistant', aiResponse, inputTokens + outputTokens, costUsd]
         );
-        console.log('💾 Saved messages to database');
+        
+        // Track usage in training_usage table
+        const userId = req.user?.id || null;
+        await pool.query(
+          `INSERT INTO training_usage (session_id, user_id, api_type, model, input_tokens, output_tokens, cost_usd)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [sessionId, userId, 'chat', 'gpt-4o-mini', inputTokens, outputTokens, costUsd]
+        );
+        
+        console.log('💾 Saved messages and usage to database');
       } catch (dbError) {
         console.error('⚠️ Failed to save to DB (continuing):', dbError.message);
       }
@@ -324,7 +372,7 @@ const getVoiceForScenario = (scenarioId) => {
 
 // Generate speech using OpenAI TTS
 const generateSpeech = async (req, res) => {
-  const { text, voice, scenario } = req.body;
+  const { text, voice, scenario, sessionId } = req.body;
 
   if (!text) {
     return res.status(400).json({ error: 'Missing text' });
@@ -360,6 +408,28 @@ const generateSpeech = async (req, res) => {
 
     // Get audio as buffer and send
     const audioBuffer = await response.arrayBuffer();
+    
+    // Track TTS usage for cost calculation
+    // TTS pricing: $15 per 1M characters
+    const charCount = text.length;
+    const costUsd = charCount * 0.000015;
+    const audioSeconds = audioBuffer.byteLength / 16000; // Rough estimate: 16KB/s for MP3
+    
+    console.log('💰 TTS chars:', charCount, '= $', costUsd.toFixed(6));
+    
+    // Save TTS usage to database if we have a valid session ID
+    if (sessionId && sessionId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+      try {
+        const userId = req.user?.id || null;
+        await pool.query(
+          `INSERT INTO training_usage (session_id, user_id, api_type, model, audio_seconds, cost_usd)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [sessionId, userId, 'tts', 'tts-1', audioSeconds, costUsd]
+        );
+      } catch (dbError) {
+        console.error('⚠️ Failed to save TTS usage (continuing):', dbError.message);
+      }
+    }
     
     res.set({
       'Content-Type': 'audio/mpeg',
