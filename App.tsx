@@ -14,15 +14,16 @@ import { SalesFloor } from './components/SalesFloor';
 import Messages from './components/Messages';
 import { Prospect, CallState, AgentStats, CallLog, User, TwilioPhoneNumber } from './types';
 import { INITIAL_PROSPECTS, INITIAL_STATS } from './constants';
-import { LayoutGrid, Users, Phone, Settings as SettingsIcon, LogOut, Bell, History, Zap, Keyboard, Sun, Moon, List, Activity, MessageSquare } from 'lucide-react';
+import { LayoutGrid, Users, Phone, Settings as SettingsIcon, LogOut, Bell, History, Zap, Keyboard, Sun, Moon, List, Activity, MessageSquare, GraduationCap } from 'lucide-react';
 
 // SERVICES
-import { liveTwilioService } from './services/LiveTwilioService';
+import { voiceService } from './services/VoiceService';
 import { backendAPI } from './services/BackendAPI';
 
 // Lazy load heavy components
 const LeadListManager = React.lazy(() => import('./components/LeadListManager').then(m => ({ default: m.LeadListManager })));
 const TeamManagement = React.lazy(() => import('./components/TeamManagement').then(m => ({ default: m.TeamManagement })));
+const Training = React.lazy(() => import('./components/Training'));
 
 // Loading fallback component
 const LoadingSpinner = () => (
@@ -33,10 +34,10 @@ const LoadingSpinner = () => (
 
 // --- CONFIGURATION ---
 const USE_BACKEND = true;
-const activeTwilioService = liveTwilioService;
+const activeVoiceService = voiceService;
 
 
-type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'history' | 'settings' | 'team-management' | 'profile' | 'lead-lists' | 'sales-floor' | 'messages';
+type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'history' | 'settings' | 'team-management' | 'profile' | 'lead-lists' | 'sales-floor' | 'messages' | 'training';
 
 const Dashboard: React.FC = () => {
     const [powerDialerDispositionSaved, setPowerDialerDispositionSaved] = useState(false);
@@ -105,32 +106,52 @@ const Dashboard: React.FC = () => {
             console.warn('Failed to fetch team members:', err);
           }
 
-          // Fetch available Twilio numbers and set first one as default
-          try {
-            const twilioNumbersList = await backendAPI.getTwilioNumbers();
-            if (twilioNumbersList && twilioNumbersList.length > 0) {
-              setTwilioNumbers(twilioNumbersList);
-              const firstNumber = twilioNumbersList[0].phoneNumber;
-              setCallerId(firstNumber);
-              console.log('Set default Caller ID to:', firstNumber);
+          // Get voice provider configuration
+          const voiceConfig = await backendAPI.getVoiceConfig();
+          console.log('Voice provider:', voiceConfig.provider);
+
+          if (voiceConfig.provider === 'telnyx' && voiceConfig.telnyx) {
+            // Initialize Telnyx with SIP credentials
+            console.log('Initializing Telnyx voice service...');
+            setCallerId(voiceConfig.telnyx.callerId);
+            
+            await activeVoiceService.initialize({
+              provider: 'telnyx',
+              telnyx: {
+                login: voiceConfig.telnyx.sipUsername,
+                password: voiceConfig.telnyx.sipPassword,
+                callerIdNumber: voiceConfig.telnyx.callerId,
+              }
+            });
+          } else {
+            // Initialize Twilio (default)
+            // Fetch available Twilio numbers and set first one as default
+            try {
+              const twilioNumbersList = await backendAPI.getTwilioNumbers();
+              if (twilioNumbersList && twilioNumbersList.length > 0) {
+                setTwilioNumbers(twilioNumbersList);
+                const firstNumber = twilioNumbersList[0].phoneNumber;
+                setCallerId(firstNumber);
+                console.log('Set default Caller ID to:', firstNumber);
+              }
+            } catch (err) {
+              console.warn('Failed to fetch Twilio numbers:', err);
             }
-          } catch (err) {
-            console.warn('Failed to fetch Twilio numbers:', err);
-          }
 
-          // Register token refresh function
-          activeTwilioService.registerTokenRefresh(async () => {
+            // Register token refresh function
+            activeVoiceService.registerTokenRefresh(async () => {
+              const token = await backendAPI.getToken('agent_1');
+              return token;
+            });
+
             const token = await backendAPI.getToken('agent_1');
-            return token;
-          });
-
-          const token = await backendAPI.getToken('agent_1');
-          await activeTwilioService.initialize(token);
+            await activeVoiceService.initialize({ provider: 'twilio', twilio: { token } });
+          }
         } else {
-          activeTwilioService.initialize('mock-token');
+          activeVoiceService.initialize({ provider: 'twilio', twilio: { token: 'mock-token' } });
         }
 
-        activeTwilioService.registerStatusCallback((stateInfo) => {
+        activeVoiceService.registerStatusCallback((stateInfo) => {
           setCurrentCall((prev) => prev ? { ...prev, state: stateInfo.state } : null);
         });
         setIsTwilioReady(true);
@@ -138,7 +159,7 @@ const Dashboard: React.FC = () => {
       } catch (err) {
         console.error("Initialization Failed:", err);
         setIsTwilioReady(false);
-        setTwilioError("Twilio initialization failed. Please refresh or contact support.");
+        setTwilioError("Voice service initialization failed. Please refresh or contact support.");
       }
     };
     initSystem();
@@ -151,7 +172,7 @@ const Dashboard: React.FC = () => {
     }
     try {
       setCurrentCall({ prospect, state: CallState.DIALING, startTime: Date.now() });
-      await activeTwilioService.connect(prospect.phone, callerId || undefined);
+      await activeVoiceService.connect(prospect.phone, callerId || undefined);
       setStats(prev => ({ ...prev, callsMade: prev.callsMade + 1 }));
     } catch (err: any) {
       console.error("Call failed", err);
@@ -202,13 +223,13 @@ const Dashboard: React.FC = () => {
   };
 
   const handleHangup = () => {
-    activeTwilioService.disconnect();
+    activeVoiceService.disconnect();
   };
 
   const handleForceEndCall = () => {
     // Force disconnect any active call and clear states
     try {
-      activeTwilioService.disconnect();
+      activeVoiceService.disconnect();
     } catch (e) {
       console.error('Error disconnecting:', e);
     }
@@ -483,6 +504,8 @@ const Dashboard: React.FC = () => {
         return <SalesFloor teamMembers={teamMembers} />;
       case 'messages':
         return <Messages currentUser={user} />;
+      case 'training':
+        return <Suspense fallback={<LoadingSpinner />}><Training /></Suspense>;
       default:
         return <div>View not found</div>;
     }
@@ -570,6 +593,12 @@ const Dashboard: React.FC = () => {
               onClick={() => setCurrentView('messages')} 
             />
             <NavItem 
+              icon={<GraduationCap size={20} />} 
+              label="Training" 
+              active={currentView === 'training'} 
+              onClick={() => setCurrentView('training')} 
+            />
+            <NavItem 
               icon={<SettingsIcon size={20} />} 
               label="Settings" 
               active={currentView === 'settings'} 
@@ -605,13 +634,8 @@ const Dashboard: React.FC = () => {
             user={user}
             isDarkMode={isDarkMode}
             onDarkModeToggle={() => setIsDarkMode(!isDarkMode)}
-            callerId={callerId}
-            onCallerIdChange={setCallerId}
-            twilioNumbers={twilioNumbers}
             onViewProfile={() => setCurrentView('profile')}
             onLogout={handleLogout}
-            onStartSession={() => setCurrentView('power-dialer')}
-            showStartSession={currentView !== 'power-dialer'}
           />
 
           {/* Active Call Bar - Only show outside Power Dialer view (Power Dialer has inline call UI like Orum) */}

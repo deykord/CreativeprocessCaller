@@ -1,19 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, X, Check, Phone, LogOut } from 'lucide-react';
-import { Notification, User, TwilioPhoneNumber } from '../types';
+import { Bell, X, Check, LogOut } from 'lucide-react';
+import { Notification, User } from '../types';
 
 interface HeaderProps {
   title: string;
   user: User | null;
   isDarkMode: boolean;
   onDarkModeToggle: () => void;
-  callerId: string | null;
-  onCallerIdChange: (id: string) => void;
-  twilioNumbers: TwilioPhoneNumber[];
   onViewProfile?: () => void;
   onLogout?: () => void;
-  onStartSession?: () => void; // Add handler for Start Session button
-  showStartSession?: boolean; // Show button only on certain views
   children?: React.ReactNode; // Allow custom buttons/elements
 }
 
@@ -22,24 +17,17 @@ export const Header: React.FC<HeaderProps> = ({
   user,
   isDarkMode,
   onDarkModeToggle,
-  callerId,
-  onCallerIdChange,
-  twilioNumbers,
   onViewProfile,
   onLogout,
-  onStartSession,
-  showStartSession = false,
   children,
 }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [showCallerIdMenu, setShowCallerIdMenu] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
 
   // Refs for click-outside detection
   const profileRef = useRef<HTMLDivElement>(null);
   const notificationsRef = useRef<HTMLDivElement>(null);
-  const callerIdRef = useRef<HTMLDivElement>(null);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -49,9 +37,6 @@ export const Header: React.FC<HeaderProps> = ({
       }
       if (notificationsRef.current && !notificationsRef.current.contains(event.target as Node)) {
         setShowNotifications(false);
-      }
-      if (callerIdRef.current && !callerIdRef.current.contains(event.target as Node)) {
-        setShowCallerIdMenu(false);
       }
     };
 
@@ -110,61 +95,6 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex items-center space-x-4">
         {/* Custom children (e.g., Sales Floor toggle) */}
         {children}
-
-        {/* Start Session Button (Orum-style) */}
-        {showStartSession && onStartSession && (
-          <button
-            onClick={onStartSession}
-            className="hidden md:flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 text-white font-semibold rounded-lg shadow-lg shadow-green-600/30 hover:shadow-green-500/40 transition-all duration-200 transform hover:scale-105"
-          >
-            <Phone size={18} />
-            Start Session
-          </button>
-        )}
-
-        {/* Caller ID Selector */}
-        <div className="relative" ref={callerIdRef}>
-          <button
-            onClick={() => setShowCallerIdMenu(!showCallerIdMenu)}
-            className="hidden md:flex items-center px-3 py-2 bg-gray-100 dark:bg-slate-700 rounded-lg text-sm text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-slate-600 hover:bg-gray-200 dark:hover:bg-slate-600 transition"
-          >
-            <Phone size={14} className="mr-2" />
-            {callerId ? callerId.replace(/[()-]/g, '') : 'Select Caller ID'}
-          </button>
-
-          {showCallerIdMenu && (
-            <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-gray-200 dark:border-slate-700 z-50">
-              <div className="p-2 border-b border-gray-200 dark:border-slate-700">
-                <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">Available Numbers</p>
-              </div>
-              <div className="max-h-64 overflow-y-auto">
-                {twilioNumbers.length === 0 ? (
-                  <div className="p-4 text-center text-gray-500 dark:text-gray-400 text-sm">
-                    No phone numbers available
-                  </div>
-                ) : (
-                  twilioNumbers.map((number) => (
-                    <button
-                      key={number.sid}
-                      onClick={() => {
-                        onCallerIdChange(number.phoneNumber);
-                        setShowCallerIdMenu(false);
-                      }}
-                      className={`w-full text-left px-4 py-2 text-sm transition ${
-                        callerId === number.phoneNumber
-                          ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-200'
-                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700'
-                      }`}
-                    >
-                      <div className="font-medium">{number.phoneNumber}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">{number.friendlyName}</div>
-                    </button>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-        </div>
 
         {/* Dark Mode Toggle */}
         <button

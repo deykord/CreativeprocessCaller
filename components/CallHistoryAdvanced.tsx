@@ -150,6 +150,9 @@ const CallHistoryAdvanced: React.FC = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   
+  // Recording menu state
+  const [openRecordingMenu, setOpenRecordingMenu] = useState<string | null>(null);
+  
   // Unique callers for filter dropdown
   const uniqueCallers = useMemo(() => {
     const callers = new Set<string>();
@@ -189,6 +192,17 @@ const CallHistoryAdvanced: React.FC = () => {
     loadCallLogs();
     loadSavedViews();
   }, [loadCallLogs, loadSavedViews]);
+
+  // Close recording menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (openRecordingMenu) {
+        setOpenRecordingMenu(null);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [openRecordingMenu]);
 
   // Filter and sort logs
   const filteredLogs = useMemo(() => {
@@ -916,7 +930,44 @@ const CallHistoryAdvanced: React.FC = () => {
                       return (
                         <td key={colKey} className="px-4 py-3">
                           {log.recordingUrl ? (
-                            <audio controls src={`/api/calls/recording/${log.id}/stream`} className="h-8 w-32" />
+                            <div className="flex items-center gap-2">
+                              <audio controls src={`/api/calls/recording/${log.id}/stream`} className="h-8 w-32" />
+                              <div className="relative">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOpenRecordingMenu(openRecordingMenu === log.id ? null : log.id);
+                                  }}
+                                  className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                                  title="More options"
+                                >
+                                  <MoreVertical size={16} className="text-gray-500 dark:text-gray-400" />
+                                </button>
+                                {openRecordingMenu === log.id && (
+                                  <div className="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 min-w-[140px] py-1">
+                                    <a
+                                      href={`/api/calls/recording/${log.id}/download`}
+                                      download={`recording-${log.id}.mp3`}
+                                      onClick={() => setOpenRecordingMenu(null)}
+                                      className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                                    >
+                                      <Download size={14} />
+                                      Download
+                                    </a>
+                                    <button
+                                      onClick={() => {
+                                        window.open(`/api/calls/recording/${log.id}/stream`, '_blank');
+                                        setOpenRecordingMenu(null);
+                                      }}
+                                      className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors w-full text-left"
+                                    >
+                                      <Eye size={14} />
+                                      Open in new tab
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           ) : (
                             <span className="text-sm text-gray-400">-</span>
                           )}

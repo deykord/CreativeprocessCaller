@@ -8,6 +8,7 @@ router.post('/status', controller.handleCallStatus);
 router.post('/recording', callController.recordingStatus); // Twilio recording webhook
 router.get('/incoming-numbers', controller.handleIncomingNumbers);
 router.get('/numbers', controller.handleTwilioNumbers);
+router.get('/config', controller.getVoiceConfig); // Get current voice provider config
 
 // Real-time call status endpoints
 router.get('/calls/active', controller.getActiveCalls);

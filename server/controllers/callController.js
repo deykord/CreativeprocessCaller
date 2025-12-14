@@ -270,7 +270,7 @@ exports.streamRecording = async (req, res) => {
   }
 };
 
-// Download (proxy) a recording by id - redirect to the recording URL
+// Download (proxy) a recording by id - force download with proper headers
 exports.downloadRecording = async (req, res) => {
   try {
     const { id } = req.params;
@@ -279,7 +279,22 @@ exports.downloadRecording = async (req, res) => {
     if (!call || !call.recording_url) {
       return res.status(404).json({ error: 'Recording not found' });
     }
-    return res.redirect(call.recording_url);
+    
+    // Fetch the recording and pipe it with download headers
+    const axios = require('axios');
+    const response = await axios({
+      method: 'get',
+      url: call.recording_url,
+      responseType: 'stream'
+    });
+    
+    // Set headers for download
+    const filename = `recording-${id}-${new Date(call.timestamp).toISOString().split('T')[0]}.mp3`;
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    
+    // Pipe the stream
+    response.data.pipe(res);
   } catch (error) {
     console.error('Failed to proxy recording download:', error);
     res.status(500).json({ error: 'Failed to download recording' });

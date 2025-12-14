@@ -8,7 +8,7 @@ import {
   FileText, ArrowLeft, ArrowRight, Loader2, AlertTriangle, Share2
 } from 'lucide-react';
 import { backendAPI } from '../services/BackendAPI';
-import { liveTwilioService } from '../services/LiveTwilioService';
+import { voiceService } from '../services/VoiceService';
 import ActivityLog from './ActivityLog';
 import PhoneCallHistory from './PhoneCallHistory';
 import { LeadListManager } from './LeadListManager';
@@ -444,7 +444,7 @@ const PowerDialer: React.FC<Props> = ({
     
     // Try to disconnect
     try {
-      liveTwilioService.disconnect();
+      voiceService.disconnect();
     } catch (e) {
       console.warn('Error disconnecting:', e);
     }
@@ -544,7 +544,7 @@ const PowerDialer: React.FC<Props> = ({
     };
   }, [stopCallStatusPolling]);
 
-  // Get CallSid from liveTwilioService when call starts (for logging purposes only)
+  // Get CallSid from voiceService when call starts (for logging purposes only)
   useEffect(() => {
     if (!isActive || isPaused) return;
     if (callStatus === 'idle' || callStatus === 'ended') return;
@@ -552,16 +552,16 @@ const PowerDialer: React.FC<Props> = ({
     
     // Poll every 500ms to check if CallSid is available
     const pollForCallSid = setInterval(() => {
-      const callSid = liveTwilioService.getCurrentCallSid();
+      const callSid = voiceService.getCurrentCallSid();
       if (callSid && callSid !== currentCallSid) {
-        console.log('Got CallSid from TwilioService:', callSid);
+        console.log('Got CallSid from VoiceService:', callSid);
         setCurrentCallSid(callSid);
         clearInterval(pollForCallSid);
       }
     }, 500);
     
     // Also check immediately
-    const callSid = liveTwilioService.getCurrentCallSid();
+    const callSid = voiceService.getCurrentCallSid();
     if (callSid) {
       console.log('Got CallSid immediately:', callSid);
       setCurrentCallSid(callSid);
@@ -765,9 +765,9 @@ const PowerDialer: React.FC<Props> = ({
     // Set status to ended immediately - this stops the timer
     setCallStatus('ended');
     
-    // IMPORTANT: Disconnect the local Twilio Device/Call
-    // This sends the hangup signal to Twilio and terminates the WebRTC connection
-    liveTwilioService.disconnect();
+    // IMPORTANT: Disconnect the local Voice Service Device/Call
+    // This sends the hangup signal and terminates the WebRTC connection
+    voiceService.disconnect();
     
     // Also end it via API to ensure Twilio server-side is updated
     if (currentCallSid) {
@@ -1630,7 +1630,7 @@ const PowerDialer: React.FC<Props> = ({
     
     // Hangup any active call
     try {
-      liveTwilioService.disconnect();
+      voiceService.disconnect();
     } catch (e) {
       console.warn('No active call to disconnect');
     }

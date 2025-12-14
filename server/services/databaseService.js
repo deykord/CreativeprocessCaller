@@ -480,7 +480,30 @@ class DatabaseService {
    * Get all call logs (alias for getCallLogs with no filter)
    */
   async getAllCallLogs() {
-    return this.getCallLogs(null, 1000);
+    return this.getCallLogs(null, 5000); // Increased limit to show more history
+  }
+
+  /**
+   * Get unique callers/agents from call logs
+   */
+  async getUniqueCallers() {
+    try {
+      const result = await pool.query(`
+        SELECT DISTINCT u.id, u.first_name, u.last_name, COUNT(cl.id) as call_count
+        FROM call_logs cl
+        INNER JOIN users u ON cl.caller_id = u.id
+        GROUP BY u.id, u.first_name, u.last_name
+        ORDER BY call_count DESC
+      `);
+      return result.rows.map(r => ({
+        id: r.id,
+        name: `${r.first_name} ${r.last_name}`,
+        callCount: parseInt(r.call_count)
+      }));
+    } catch (error) {
+      console.error('Error getting unique callers:', error);
+      throw error;
+    }
   }
 
   /**
@@ -1526,6 +1549,242 @@ class DatabaseService {
     } catch (error) {
       console.error('Error ensuring admin user:', error);
       // Don't throw - this is initialization code
+    }
+  }
+
+  // ========================
+  // TRAINING SESSIONS
+  // ========================
+
+  /**
+   * Get all training sessions
+   */
+  async getTrainingSessions() {
+    try {
+      const result = await pool.query(
+        `SELECT * FROM training_sessions ORDER BY start_time DESC LIMIT 100`
+      );
+      return result.rows.map(row => ({
+        id: row.id,
+        agentId: row.agent_id,
+        agentName: row.agent_name,
+        providerId: row.provider_id,
+        scenarioId: row.scenario_id,
+        scenarioName: row.scenario_name,
+        startTime: row.start_time,
+        endTime: row.end_time,
+        duration: row.duration,
+        cost: parseFloat(row.cost) || 0,
+        score: row.score,
+        feedback: row.feedback ? JSON.parse(row.feedback) : null,
+        recordingUrl: row.recording_url,
+        status: row.status
+      }));
+    } catch (error) {
+      // If table doesn't exist, return empty array
+      if (error.code === '42P01') {
+        console.log('Training sessions table does not exist yet');
+        return [];
+      }
+      console.error('Error getting training sessions:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get a single training session by ID
+   */
+  async getTrainingSession(id) {
+    try {
+      const result = await pool.query(
+        `SELECT * FROM training_sessions WHERE id = $1`,
+        [id]
+      );
+      return result.rows[0];
+    } catch (error) {
+      console.error('Error getting training session:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a new training session
+   */
+  async createTrainingSession(session) {
+    try {
+      // Ensure table exists
+      await this.ensureTrainingSessionsTable();
+      
+      const result = await pool.query(
+        `INSERT INTO training_sessions 
+        (id, agent_id, agent_name, provider_id, scenario_id, scenario_name, start_time, status, feedback_options)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING *`,
+        [
+          session.id,
+          session.agentId,
+          session.agentName,
+          session.providerId,
+          session.scenarioId,
+          session.scenarioName,
+          session.startTime,
+          session.status || 'active',
+          JSON.stringify(session.feedbackOptions || {})
+        ]
+      );
+      return result.rows[0];
+    } catch (error) {
+      console.error('Error creating training session:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update a training session
+   */
+  async updateTrainingSession(id, updates) {
+    try {
+      const result = await pool.query(
+        `UPDATE training_sessions 
+        SET end_time = $2, duration = $3, cost = $4, score = $5, feedback = $6, status = $7
+        WHERE id = $1
+        RETURNING *`,
+        [
+          id,
+          updates.endTime,
+          updates.duration,
+          updates.cost,
+          updates.score,
+          updates.feedback,
+          updates.status
+        ]
+      );
+      
+      const row = result.rows[0];
+      return {
+        id: row.id,
+        agentId: row.agent_id,
+        agentName: row.agent_name,
+        providerId: row.provider_id,
+        scenarioId: row.scenario_id,
+        scenarioName: row.scenario_name,
+        startTime: row.start_time,
+        endTime: row.end_time,
+        duration: row.duration,
+        cost: parseFloat(row.cost) || 0,
+        score: row.score,
+        feedback: row.feedback ? JSON.parse(row.feedback) : null,
+        status: row.status
+      };
+    } catch (error) {
+      console.error('Error updating training session:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get training costs summary
+   */
+  async getTrainingCosts() {
+    try {
+      // Ensure table exists
+      await this.ensureTrainingSessionsTable();
+      
+      const now = new Date();
+      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay());
+      startOfWeek.setHours(0, 0, 0, 0);
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      const result = await pool.query(`
+        SELECT 
+          COALESCE(SUM(CASE WHEN start_time >= $1 THEN cost ELSE 0 END), 0) as today,
+          COALESCE(SUM(CASE WHEN start_time >= $2 THEN cost ELSE 0 END), 0) as this_week,
+          COALESCE(SUM(CASE WHEN start_time >= $3 THEN cost ELSE 0 END), 0) as this_month,
+          COALESCE(SUM(cost), 0) as all_time
+        FROM training_sessions
+        WHERE status = 'completed'
+      `, [startOfDay, startOfWeek, startOfMonth]);
+
+      // Get costs by provider
+      const byProviderResult = await pool.query(`
+        SELECT provider_id, COALESCE(SUM(cost), 0) as total
+        FROM training_sessions
+        WHERE status = 'completed'
+        GROUP BY provider_id
+      `);
+
+      // Get costs by agent
+      const byAgentResult = await pool.query(`
+        SELECT agent_name, COALESCE(SUM(cost), 0) as total
+        FROM training_sessions
+        WHERE status = 'completed'
+        GROUP BY agent_name
+      `);
+
+      const byProvider = {};
+      byProviderResult.rows.forEach(row => {
+        byProvider[row.provider_id] = parseFloat(row.total) || 0;
+      });
+
+      const byAgent = {};
+      byAgentResult.rows.forEach(row => {
+        byAgent[row.agent_name] = parseFloat(row.total) || 0;
+      });
+
+      return {
+        today: parseFloat(result.rows[0].today) || 0,
+        thisWeek: parseFloat(result.rows[0].this_week) || 0,
+        thisMonth: parseFloat(result.rows[0].this_month) || 0,
+        allTime: parseFloat(result.rows[0].all_time) || 0,
+        byProvider,
+        byAgent
+      };
+    } catch (error) {
+      // If table doesn't exist, return zeros
+      if (error.code === '42P01') {
+        return {
+          today: 0,
+          thisWeek: 0,
+          thisMonth: 0,
+          allTime: 0,
+          byProvider: {},
+          byAgent: {}
+        };
+      }
+      console.error('Error getting training costs:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Ensure training_sessions table exists
+   */
+  async ensureTrainingSessionsTable() {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS training_sessions (
+          id VARCHAR(255) PRIMARY KEY,
+          agent_id VARCHAR(255),
+          agent_name VARCHAR(255),
+          provider_id VARCHAR(100),
+          scenario_id VARCHAR(100),
+          scenario_name VARCHAR(255),
+          start_time TIMESTAMP WITH TIME ZONE,
+          end_time TIMESTAMP WITH TIME ZONE,
+          duration INTEGER DEFAULT 0,
+          cost DECIMAL(10, 4) DEFAULT 0,
+          score INTEGER,
+          feedback TEXT,
+          recording_url TEXT,
+          status VARCHAR(50) DEFAULT 'active',
+          feedback_options TEXT,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )
+      `);
+    } catch (error) {
+      console.error('Error creating training_sessions table:', error);
     }
   }
 }

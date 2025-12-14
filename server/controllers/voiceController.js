@@ -323,3 +323,34 @@ exports.getCachedCallStatus = async (req, res) => {
   
   res.status(404).json({ error: 'Call status not found in cache' });
 };
+
+// Get voice provider configuration for frontend
+exports.getVoiceConfig = async (req, res) => {
+  try {
+    const provider = config.voiceProvider || 'twilio';
+    
+    if (provider === 'telnyx') {
+      // Return Telnyx SIP credentials for WebRTC
+      res.json({
+        provider: 'telnyx',
+        telnyx: {
+          sipUsername: config.telnyx?.sipUsername || '',
+          sipPassword: config.telnyx?.sipPassword || '',
+          callerId: config.telnyx?.callerId || '',
+          // Don't expose API key or connection ID to frontend
+        }
+      });
+    } else {
+      // Return Twilio config indicator (token fetched separately)
+      res.json({
+        provider: 'twilio',
+        twilio: {
+          // Token is fetched via /api/token endpoint
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Error getting voice config:', error);
+    res.status(500).json({ error: 'Failed to get voice config' });
+  }
+};

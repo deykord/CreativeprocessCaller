@@ -285,6 +285,19 @@ export const backendAPI = {
 
   // --- Settings ---
   
+  async getVoiceConfig(): Promise<{
+    provider: 'twilio' | 'telnyx';
+    twilio?: {};
+    telnyx?: {
+      sipUsername: string;
+      sipPassword: string;
+      callerId: string;
+    };
+  }> {
+    const res = await fetch(`${API_BASE_URL}/voice/config`);
+    return res.json();
+  },
+
   async getIncomingNumbers(): Promise<TwilioPhoneNumber[]> {
     const res = await fetch(`${API_BASE_URL}/voice/incoming-numbers`);
     return res.json();
@@ -815,5 +828,94 @@ export const backendAPI = {
     }
     const data = await res.json();
     return data.stats;
+  },
+
+  // --- Telnyx Integration ---
+
+  async isTelnyxConfigured(): Promise<boolean> {
+    try {
+      const token = localStorage.getItem('authToken');
+      const res = await fetch(`${API_BASE_URL}/telnyx/configured`, {
+        headers: { 'Authorization': `Bearer ${token || ''}` }
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      return data.configured;
+    } catch {
+      return false;
+    }
+  },
+
+  async getTelnyxPhoneNumbers(): Promise<TwilioPhoneNumber[]> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/telnyx/numbers`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch Telnyx numbers: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  async getTelnyxCallStatus(callControlId: string): Promise<TwilioCallStatus> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/telnyx/calls/${callControlId}/status`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch Telnyx call status: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  async getTelnyxActiveCalls(): Promise<TwilioCallStatus[]> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/telnyx/calls/active`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch active Telnyx calls: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  async endTelnyxCall(callControlId: string): Promise<{ success: boolean; callControlId: string }> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/telnyx/calls/${callControlId}/end`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      }
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to end Telnyx call: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  async getTelnyxRecordings(): Promise<Array<{
+    id: string;
+    callControlId: string;
+    status: string;
+    duration: number;
+    createdAt: string;
+    downloadUrl: string;
+  }>> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/telnyx/recordings`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch Telnyx recordings: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  // Helper to get current voice provider
+  async getVoiceProvider(): Promise<'twilio' | 'telnyx'> {
+    // Check if Telnyx is configured, otherwise default to Twilio
+    const telnyxConfigured = await this.isTelnyxConfigured();
+    return telnyxConfigured ? 'telnyx' : 'twilio';
   }
 };
