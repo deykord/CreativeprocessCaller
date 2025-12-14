@@ -917,5 +917,18 @@ export const backendAPI = {
     // Check if Telnyx is configured, otherwise default to Twilio
     const telnyxConfigured = await this.isTelnyxConfigured();
     return telnyxConfigured ? 'telnyx' : 'twilio';
+  },
+
+  // --- Training ---
+  
+  async getTrainingProviderStatus(): Promise<{ openai: boolean }> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/training/providers/status`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch training provider status: ${res.status}`);
+    }
+    return res.json();
   }
 };

@@ -245,22 +245,54 @@ You're interested but don't have decision-making authority. Test whether the rep
   }
 
   /**
-   * Test the connection to OpenAI
+   * Test the connection to OpenAI with timeout
    */
   async testConnection() {
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
       const response = await fetch('https://api.openai.com/v1/models', {
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
         },
+        signal: controller.signal
       });
 
+      clearTimeout(timeout);
       return response.ok;
     } catch (error) {
-      console.error('OpenAI connection test failed:', error);
+      if (error.name === 'AbortError') {
+        console.error('OpenAI connection test timeout after 10 seconds');
+      } else {
+        console.error('OpenAI connection test failed:', error);
+      }
       return false;
+    }
+  }
+
+  /**
+   * Clean up sessions to prevent memory leaks
+   */
+  cleanupOldSessions() {
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+    
+    for (const [sessionId, session] of this.sessions.entries()) {
+      if (session.startTime < oneHourAgo) {
+        console.log(`Cleaning up old session: ${sessionId}`);
+        this.sessions.delete(sessionId);
+      }
     }
   }
 }
 
-module.exports = new OpenAIService();
+// Create singleton instance
+const instance = new OpenAIService();
+
+// Run cleanup every 30 minutes
+setInterval(() => {
+  instance.cleanupOldSessions();
+}, 30 * 60 * 1000);
+
+module.exports = instance;
