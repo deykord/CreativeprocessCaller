@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
-const { authenticateToken } = require('../middleware/authMiddleware');
+const authMiddleware = require('../middleware/authMiddleware');
 
 // Middleware to check if user is admin
 const requireAdmin = async (req, res, next) => {
@@ -53,7 +53,7 @@ const PRICING = {
 };
 
 // GET /api/admin/training/costs - Get total training costs
-router.get('/training/costs', authenticateToken, requireAdmin, async (req, res) => {
+router.get('/training/costs', authMiddleware, requireAdmin, async (req, res) => {
   const range = req.query.range || '30d';
   const dateFilter = getDateFilter(range).replace('ts.', '');
   
@@ -109,7 +109,7 @@ router.get('/training/costs', authenticateToken, requireAdmin, async (req, res) 
 });
 
 // GET /api/admin/training/agents - Get per-agent statistics
-router.get('/training/agents', authenticateToken, requireAdmin, async (req, res) => {
+router.get('/training/agents', authMiddleware, requireAdmin, async (req, res) => {
   const range = req.query.range || '30d';
   const dateFilter = getDateFilter(range);
   
@@ -156,7 +156,7 @@ router.get('/training/agents', authenticateToken, requireAdmin, async (req, res)
 });
 
 // GET /api/admin/training/daily-usage - Get daily usage trends
-router.get('/training/daily-usage', authenticateToken, requireAdmin, async (req, res) => {
+router.get('/training/daily-usage', authMiddleware, requireAdmin, async (req, res) => {
   const range = req.query.range || '30d';
   
   let days = 30;
@@ -193,7 +193,7 @@ router.get('/training/daily-usage', authenticateToken, requireAdmin, async (req,
 });
 
 // GET /api/admin/training/scenarios - Get scenario performance
-router.get('/training/scenarios', authenticateToken, requireAdmin, async (req, res) => {
+router.get('/training/scenarios', authMiddleware, requireAdmin, async (req, res) => {
   const range = req.query.range || '30d';
   const dateFilter = getDateFilter(range);
   
