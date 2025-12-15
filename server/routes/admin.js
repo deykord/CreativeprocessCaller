@@ -41,6 +41,20 @@ const getDateFilter = (range) => {
   }
 };
 
+// Helper to get date range in days for call logs
+const getDateIntervalDays = (range) => {
+  switch (range) {
+    case '7d':
+      return '7';
+    case '30d':
+      return '30';
+    case '90d':
+      return '90';
+    default:
+      return '365'; // all time - last year
+  }
+};
+
 // OpenAI pricing (as of Dec 2024)
 const PRICING = {
   'gpt-4o-mini': {
@@ -108,10 +122,11 @@ router.get('/training/costs', authMiddleware, requireAdmin, async (req, res) => 
   }
 });
 
-// GET /api/admin/training/agents - Get per-agent statistics
+// GET /api/admin/training/agents - Get per-agent statistics (training + call activity)
 router.get('/training/agents', authMiddleware, requireAdmin, async (req, res) => {
   const range = req.query.range || '30d';
   const dateFilter = getDateFilter(range);
+  const dayInterval = getDateIntervalDays(range);
   
   try {
     const result = await pool.query(`
@@ -119,34 +134,76 @@ router.get('/training/agents', authMiddleware, requireAdmin, async (req, res) =>
         u.id as user_id,
         CONCAT(u.first_name, ' ', u.last_name) as user_name,
         u.email,
-        COUNT(ts.id) as total_sessions,
+        u.role,
+        COUNT(DISTINCT ts.id) as total_sessions,
         COALESCE(SUM(ts.message_count), 0) as total_messages,
         COALESCE(AVG(ts.duration_seconds), 0) as avg_session_duration,
         COALESCE(AVG(ts.score), 0) as avg_score,
         MAX(ts.started_at) as last_training_date,
-        ARRAY_AGG(DISTINCT ts.scenario_id) FILTER (WHERE ts.scenario_id IS NOT NULL) as scenarios_completed
+        ARRAY_AGG(DISTINCT ts.scenario_id) FILTER (WHERE ts.scenario_id IS NOT NULL) as scenarios_completed,
+        -- Call statistics
+        COUNT(DISTINCT cl.id) as total_calls,
+        COUNT(DISTINCT CASE WHEN cl.outcome IN ('completed', 'answered') THEN cl.id END) as connected_calls,
+        COALESCE(SUM(CASE WHEN cl.outcome IN ('completed', 'answered') THEN 1 ELSE 0 END)::numeric / NULLIF(COUNT(DISTINCT cl.id)::numeric, 0) * 100, 0) as success_rate,
+        COALESCE(SUM(cl.duration), 0) as total_call_duration,
+        COALESCE(SUM(CASE WHEN cl.started_at > NOW() - INTERVAL '1 day' THEN 1 ELSE 0 END), 0) as calls_last_24h,
+        MAX(cl.started_at) as last_call_date
       FROM users u
       LEFT JOIN training_sessions ts ON ts.user_id = u.id ${dateFilter}
-      WHERE u.is_active = true
-      GROUP BY u.id, u.first_name, u.last_name, u.email
-      HAVING COUNT(ts.id) > 0
-      ORDER BY total_sessions DESC
+      LEFT JOIN call_logs cl ON cl.caller_id = u.id AND cl.started_at > NOW() - INTERVAL '${dayInterval} days'
+      WHERE u.is_active = true AND u.role IN ('agent', 'admin', 'supervisor')
+      GROUP BY u.id, u.first_name, u.last_name, u.email, u.role
+      HAVING COUNT(DISTINCT ts.id) > 0 OR COUNT(DISTINCT cl.id) > 0
+      ORDER BY COALESCE(COUNT(DISTINCT ts.id), 0) + COALESCE(COUNT(DISTINCT cl.id), 0) DESC
     `);
 
-    // Calculate estimated costs per agent
-    const agents = result.rows.map(row => ({
-      userId: row.user_id,
-      userName: row.user_name?.trim() || 'Unknown',
-      email: row.email,
-      totalSessions: parseInt(row.total_sessions),
-      totalMessages: parseInt(row.total_messages),
-      avgSessionDuration: parseFloat(row.avg_session_duration),
-      avgScore: parseFloat(row.avg_score),
-      lastTrainingDate: row.last_training_date,
-      scenariosCompleted: row.scenarios_completed || [],
-      // Estimate cost: ~$0.001 per message (rough estimate)
-      totalCostUsd: parseInt(row.total_messages) * 0.001
-    }));
+    // Calculate performance metrics per agent
+    const agents = result.rows.map(row => {
+      const totalCalls = parseInt(row.total_calls) || 0;
+      const connectedCalls = parseInt(row.connected_calls) || 0;
+      const successRate = parseFloat(row.success_rate) || 0;
+      const totalSessions = parseInt(row.total_sessions) || 0;
+      const avgScore = parseFloat(row.avg_score) || 0;
+      
+      // Calculate online hours (approximate: based on last 30 days activity)
+      const onlineHours = Math.round((parseInt(row.total_call_duration) || 0) / 3600);
+      
+      // Performance score: 50% success rate, 30% training quality, 20% activity
+      const trainingScore = totalSessions > 0 ? avgScore : 0;
+      const activityScore = totalCalls > 0 ? 100 : 0;
+      const performanceScore = Math.round(
+        (successRate * 0.5) + 
+        (trainingScore * 0.3) + 
+        (activityScore * 0.2)
+      );
+
+      return {
+        userId: row.user_id,
+        userName: row.user_name?.trim() || 'Unknown',
+        email: row.email,
+        role: row.role,
+        // Training metrics
+        totalSessions: totalSessions,
+        totalMessages: parseInt(row.total_messages) || 0,
+        avgSessionDuration: parseFloat(row.avg_session_duration) || 0,
+        avgScore: avgScore,
+        trainingScore: Math.round(avgScore),
+        lastTrainingDate: row.last_training_date,
+        scenariosCompleted: row.scenarios_completed || [],
+        // Call metrics
+        totalCalls: totalCalls,
+        connectedCalls: connectedCalls,
+        successRate: Math.round(successRate * 100) / 100,
+        totalCallDuration: parseInt(row.total_call_duration) || 0,
+        onlineHours: onlineHours,
+        callsLast24h: parseInt(row.calls_last_24h) || 0,
+        lastCallDate: row.last_call_date,
+        // Overall performance
+        performanceScore: performanceScore,
+        // Cost estimate: ~$0.001 per message
+        totalCostUsd: (parseInt(row.total_messages) || 0) * 0.001
+      };
+    });
 
     res.json({ agents });
   } catch (error) {

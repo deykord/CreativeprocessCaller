@@ -20,13 +20,26 @@ interface AgentStats {
   userId: string;
   userName: string;
   email: string;
+  role: string;
+  // Training metrics
   totalSessions: number;
   totalMessages: number;
   avgSessionDuration: number;
   avgScore: number;
-  totalCostUsd: number;
+  trainingScore: number;
   lastTrainingDate: string;
   scenariosCompleted: string[];
+  // Call metrics
+  totalCalls: number;
+  connectedCalls: number;
+  successRate: number;
+  totalCallDuration: number;
+  onlineHours: number;
+  callsLast24h: number;
+  lastCallDate: string;
+  // Overall performance
+  performanceScore: number;
+  totalCostUsd: number;
 }
 
 interface DailyUsage {
@@ -52,6 +65,16 @@ const AdminDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState<'7d' | '30d' | '90d' | 'all'>('30d');
   const [error, setError] = useState<string | null>(null);
+
+  // Get current admin user
+  const currentUser = (() => {
+    try {
+      const user = localStorage.getItem('user');
+      return user ? JSON.parse(user) : null;
+    } catch {
+      return null;
+    }
+  })();
 
   const getApiUrl = () => {
     return window.location.origin.replace(':5173', ':3001');
@@ -91,7 +114,11 @@ const AdminDashboard: React.FC = () => {
       ]);
 
       setCosts(costsData);
-      setAgentStats(agentsData.agents || []);
+      // Filter out the current admin user from agent stats
+      const filteredAgents = (agentsData.agents || []).filter((agent: AgentStats) => 
+        agent.userId !== currentUser?.id
+      );
+      setAgentStats(filteredAgents);
       setDailyUsage(dailyData.usage || []);
       setScenarioStats(scenariosData.scenarios || []);
     } catch (err: any) {
@@ -150,7 +177,7 @@ const AdminDashboard: React.FC = () => {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Admin Dashboard</h2>
-          <p className="text-gray-500 dark:text-gray-400">Training costs & agent performance analytics</p>
+          <p className="text-gray-500 dark:text-gray-400">Team agent performance, training costs & analytics</p>
         </div>
         <div className="flex items-center gap-3">
           {/* Date Range Selector */}
@@ -290,6 +317,128 @@ const AdminDashboard: React.FC = () => {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Agent Call Performance & Analytics */}
+      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700">
+        <div className="p-5 border-b border-gray-200 dark:border-slate-700">
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <Phone className="w-5 h-5 text-green-500" />
+            Agent Call Performance & Activity
+          </h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Real calls, training sessions, and online time tracking</p>
+        </div>
+        <div className="p-5">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="border-b border-gray-200 dark:border-slate-700">
+                <tr>
+                  <th className="text-left pb-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Agent</th>
+                  <th className="text-center pb-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Real Calls</th>
+                  <th className="text-center pb-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Connected</th>
+                  <th className="text-center pb-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Success Rate</th>
+                  <th className="text-center pb-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Training</th>
+                  <th className="text-center pb-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Online Time</th>
+                  <th className="text-center pb-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Performance</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
+                {agentStats.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-gray-500 dark:text-gray-400">
+                      No agent activity data available
+                    </td>
+                  </tr>
+                ) : (
+                  agentStats.map((agent) => {
+                    // Use real data from API
+                    const totalCalls = agent.totalCalls || 0;
+                    const connectedCalls = agent.connectedCalls || 0;
+                    const successRate = agent.successRate || 0;
+                    const onlineHours = agent.onlineHours || 0;
+                    const trainingScore = agent.trainingScore || 0;
+                    const performanceScore = agent.performanceScore || 0;
+                    
+                    return (
+                      <tr key={agent.userId} className="hover:bg-gray-50 dark:hover:bg-slate-700/30">
+                        <td className="py-4">
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-sm font-bold">
+                              {agent.userName?.charAt(0)?.toUpperCase() || 'A'}
+                            </div>
+                            <div>
+                              <div className="font-medium text-gray-900 dark:text-white text-sm">{agent.userName}</div>
+                              <div className="text-xs text-gray-500">{agent.email}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-4 text-center font-semibold text-gray-900 dark:text-white">{totalCalls}</td>
+                        <td className="py-4 text-center">
+                          <span className="text-green-600 dark:text-green-400 font-medium">{connectedCalls}</span>
+                        </td>
+                        <td className="py-4 text-center">
+                          <div className="flex flex-col items-center gap-1">
+                            <span className={`text-sm font-bold ${
+                              successRate >= 50 ? 'text-green-600 dark:text-green-400' :
+                              successRate >= 30 ? 'text-yellow-600 dark:text-yellow-400' :
+                              'text-red-600 dark:text-red-400'
+                            }`}>
+                              {successRate.toFixed(1)}%
+                            </span>
+                            <div className="w-16 h-1.5 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full ${
+                                  successRate >= 50 ? 'bg-green-500' :
+                                  successRate >= 30 ? 'bg-yellow-500' :
+                                  'bg-red-500'
+                                }`}
+                                style={{ width: `${Math.min(successRate, 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-4 text-center">
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
+                              {agent.totalSessions} sessions
+                            </span>
+                            {trainingScore > 0 && (
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                                trainingScore >= 80 ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                                trainingScore >= 60 ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                                'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                              }`}>
+                                {Math.round(trainingScore)}%
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-4 text-center">
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="text-sm font-bold text-gray-900 dark:text-white">{onlineHours}h</span>
+                            <span className="text-xs text-gray-500">this period</span>
+                          </div>
+                        </td>
+                        <td className="py-4 text-center">
+                          <div className="flex flex-col items-center gap-1">
+                            <span className={`text-2xl font-bold ${
+                              performanceScore >= 75 ? 'text-green-600 dark:text-green-400' :
+                              performanceScore >= 50 ? 'text-yellow-600 dark:text-yellow-400' :
+                              'text-red-600 dark:text-red-400'
+                            }`}>
+                              {Math.round(performanceScore)}
+                            </span>
+                            <span className="text-xs text-gray-500">overall</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
