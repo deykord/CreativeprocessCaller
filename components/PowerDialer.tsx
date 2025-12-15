@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Prospect, CallEndReason, TwilioCallStatus, LeadList, User as UserType } from '../types';
+import { Prospect, CallEndReason, TwilioCallStatus, LeadList, User as UserType, CallState } from '../types';
 import { 
   Play, Pause, Phone, User as UserIcon, Users, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft,
   Mic, MicOff, Volume2, Settings, Linkedin, AlertCircle, Check, PhoneOff, X, History,
@@ -8,7 +8,7 @@ import {
   FileText, ArrowLeft, ArrowRight, Loader2, AlertTriangle, Share2
 } from 'lucide-react';
 import { backendAPI } from '../services/BackendAPI';
-import { voiceService } from '../services/VoiceService';
+import { voiceService, UnifiedCallStateInfo } from '../services/VoiceService';
 import { standardizePhoneNumber } from '../utils/phoneUtils';
 import ActivityLog from './ActivityLog';
 import PhoneCallHistory from './PhoneCallHistory';
@@ -580,18 +580,39 @@ const PowerDialer: React.FC<Props> = ({
     };
   }, [isActive, isPaused, callStatus, currentCallSid]);
 
-  // Fallback: Simulate call status progression if no real callSid
+  // Register for real-time WebRTC call status updates from voice service
   useEffect(() => {
-    if (!isActive || isPaused) return;
-    
-    const dialingTimer = setTimeout(() => setCallStatus('ringing'), 2000);
-    const ringingTimer = setTimeout(() => setCallStatus('in-progress'), 5000);
-    
-    return () => {
-      clearTimeout(dialingTimer);
-      clearTimeout(ringingTimer);
+    // Map CallState enum to our local callStatus string format
+    const mapCallStateToStatus = (state: CallState): typeof callStatus => {
+      const stateMap: Record<CallState, typeof callStatus> = {
+        [CallState.IDLE]: 'idle',
+        [CallState.DIALING]: 'dialing',
+        [CallState.QUEUED]: 'queued',
+        [CallState.RINGING]: 'ringing',
+        [CallState.IN_PROGRESS]: 'in-progress',
+        [CallState.CONNECTED]: 'connected',
+        [CallState.COMPLETED]: 'completed',
+        [CallState.BUSY]: 'busy',
+        [CallState.NO_ANSWER]: 'no-answer',
+        [CallState.FAILED]: 'failed',
+        [CallState.CANCELED]: 'canceled',
+        [CallState.WRAP_UP]: 'ended',
+      };
+      return stateMap[state] || 'idle';
     };
-  }, [isActive, isPaused, currentIndex, currentCallSid]);
+
+    // Register callback for real call state updates from Telnyx/Twilio WebRTC
+    voiceService.registerStatusCallback((stateInfo: UnifiedCallStateInfo) => {
+      console.log('PowerDialer received real call status:', stateInfo.state);
+      const newStatus = mapCallStateToStatus(stateInfo.state);
+      setCallStatus(newStatus);
+      
+      // Handle call end reason if present
+      if (stateInfo.endReason) {
+        setCallEndReason(stateInfo.endReason);
+      }
+    });
+  }, []);
 
   const formatCallTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);

@@ -32,7 +32,7 @@ export interface TelnyxCredentials {
 class TelnyxService {
   private client: TelnyxRTC | null = null;
   private currentCall: ICall | null = null;
-  private statusCallback: ((stateInfo: TelnyxCallStateInfo) => void) | null = null;
+  private statusCallbacks: Set<(stateInfo: TelnyxCallStateInfo) => void> = new Set();
   private currentCallId: string | null = null;
   private callControlId: string | null = null;
   private callStartTime: Date | null = null;
@@ -43,12 +43,16 @@ class TelnyxService {
   private readyResolve: (() => void) | null = null;
 
   registerStatusCallback(cb: (stateInfo: TelnyxCallStateInfo) => void) {
-    this.statusCallback = cb;
+    this.statusCallbacks.add(cb);
+    // Return unsubscribe function
+    return () => this.statusCallbacks.delete(cb);
   }
 
   // Legacy support - wrap to new format
   registerStatusCallbackLegacy(cb: (state: CallState) => void) {
-    this.statusCallback = (info: TelnyxCallStateInfo) => cb(info.state);
+    const wrappedCb = (info: TelnyxCallStateInfo) => cb(info.state);
+    this.statusCallbacks.add(wrappedCb);
+    return () => this.statusCallbacks.delete(wrappedCb);
   }
 
   getCurrentCallId(): string | null {
@@ -65,15 +69,21 @@ class TelnyxService {
   }
 
   private emitStatus(state: CallState, extras: Partial<TelnyxCallStateInfo> = {}) {
-    if (this.statusCallback) {
-      this.statusCallback({
-        state,
-        callId: this.currentCallId || undefined,
-        callControlId: this.callControlId || undefined,
-        duration: this.getCallDuration(),
-        ...extras
-      });
-    }
+    const stateInfo: TelnyxCallStateInfo = {
+      state,
+      callId: this.currentCallId || undefined,
+      callControlId: this.callControlId || undefined,
+      duration: this.getCallDuration(),
+      ...extras
+    };
+    console.log('TelnyxService emitting status:', state, 'to', this.statusCallbacks.size, 'callbacks');
+    this.statusCallbacks.forEach(cb => {
+      try {
+        cb(stateInfo);
+      } catch (e) {
+        console.error('Error in status callback:', e);
+      }
+    });
   }
 
   /**
@@ -200,7 +210,12 @@ class TelnyxService {
 
       this.currentCall = call;
       this.currentCallId = call.id;
-      // Call events are handled via telnyx.notification in setupClientListeners
+      
+      // Listen to call-level state changes directly on the call object
+      call.on('stateChange', (state: { current: string }) => {
+        console.log('Telnyx call stateChange event:', state.current);
+        this.handleCallUpdate(call);
+      });
 
       return call;
     } catch (err) {
@@ -212,22 +227,28 @@ class TelnyxService {
 
   private handleCallUpdate(call: ICall) {
     const state = call.state;
-    console.log('Telnyx call state:', state);
+    console.log('Telnyx handleCallUpdate - raw state:', state, 'call.id:', call.id);
 
     // Update current call reference
     this.currentCall = call;
     this.currentCallId = call.id;
 
     switch (state) {
+      case 'new':
       case 'trying':
       case 'requesting':
+      case 'recovering':
+        console.log('Telnyx: Emitting DIALING for state:', state);
         this.emitStatus(CallState.DIALING);
         break;
       case 'ringing':
       case 'early':
+      case 'answering':
+        console.log('Telnyx: Emitting RINGING for state:', state);
         this.emitStatus(CallState.RINGING);
         break;
       case 'active':
+        console.log('Telnyx: Emitting CONNECTED for state:', state);
         if (!this.callStartTime) {
           this.callStartTime = new Date();
         }
@@ -235,6 +256,8 @@ class TelnyxService {
         break;
       case 'hangup':
       case 'destroy':
+      case 'purge':
+        console.log('Telnyx: Emitting WRAP_UP for state:', state);
         const endReason = this.localDisconnect
           ? CallEndReason.AGENT_HANGUP
           : CallEndReason.CUSTOMER_HANGUP;

@@ -19,7 +19,7 @@ export interface CallStateInfo {
 class LiveTwilioService {
   private device: Device | null = null;
   private currentCall: Call | null = null;
-  private statusCallback: ((stateInfo: CallStateInfo) => void) | null = null;
+  private statusCallbacks: Set<(stateInfo: CallStateInfo) => void> = new Set();
   private tokenRefreshInterval: NodeJS.Timeout | null = null;
   private getTokenCallback: (() => Promise<string>) | null = null;
   private currentCallSid: string | null = null;
@@ -27,12 +27,15 @@ class LiveTwilioService {
   private localDisconnect: boolean = false; // Track if we initiated the disconnect
 
   registerStatusCallback(cb: (stateInfo: CallStateInfo) => void) {
-    this.statusCallback = cb;
+    this.statusCallbacks.add(cb);
+    return () => this.statusCallbacks.delete(cb);
   }
 
   // Legacy support - wrap to new format
   registerStatusCallbackLegacy(cb: (state: CallState) => void) {
-    this.statusCallback = (info: CallStateInfo) => cb(info.state);
+    const wrappedCb = (info: CallStateInfo) => cb(info.state);
+    this.statusCallbacks.add(wrappedCb);
+    return () => this.statusCallbacks.delete(wrappedCb);
   }
 
   registerTokenRefresh(getToken: () => Promise<string>) {
@@ -60,14 +63,20 @@ class LiveTwilioService {
   }
 
   private emitStatus(state: CallState, extras: Partial<CallStateInfo> = {}) {
-    if (this.statusCallback) {
-      this.statusCallback({
-        state,
-        callSid: this.currentCallSid || undefined,
-        duration: this.getCallDuration(),
-        ...extras
-      });
-    }
+    const stateInfo: CallStateInfo = {
+      state,
+      callSid: this.currentCallSid || undefined,
+      duration: this.getCallDuration(),
+      ...extras
+    };
+    console.log('TwilioService emitting status:', state, 'to', this.statusCallbacks.size, 'callbacks');
+    this.statusCallbacks.forEach(cb => {
+      try {
+        cb(stateInfo);
+      } catch (e) {
+        console.error('Error in status callback:', e);
+      }
+    });
   }
 
   /**

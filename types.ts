@@ -44,7 +44,7 @@ export interface Prospect {
   company: string;
   phone: string;
   email: string;
-  status: 'New' | 'Contacted' | 'Qualified' | 'Lost' | 'Do Not Call';
+  status: 'New' | 'Contacted' | 'Qualified' | 'Lost' | 'Do Not Call' | 'Callback' | 'Follow Up Required' | 'Busy Later';
   lastCall?: string;
   notes?: string;
   timezone: string;

@@ -36,8 +36,9 @@ export interface VoiceServiceConfig {
  */
 class UnifiedVoiceService {
   private provider: VoiceProvider = 'twilio';
-  private statusCallback: ((stateInfo: UnifiedCallStateInfo) => void) | null = null;
+  private statusCallbacks: Set<(stateInfo: UnifiedCallStateInfo) => void> = new Set();
   private initialized: boolean = false;
+  private unsubscribeFns: Array<() => void> = [];
 
   /**
    * Set the voice provider to use
@@ -56,27 +57,34 @@ class UnifiedVoiceService {
 
   /**
    * Register a callback for call state changes
+   * Returns an unsubscribe function
    */
-  registerStatusCallback(cb: (stateInfo: UnifiedCallStateInfo) => void) {
-    this.statusCallback = cb;
+  registerStatusCallback(cb: (stateInfo: UnifiedCallStateInfo) => void): () => void {
+    this.statusCallbacks.add(cb);
     
-    // Register with the appropriate service
+    // Create wrapper that broadcasts to this callback
+    const wrapperCb = (info: TelnyxCallStateInfo | TwilioCallStateInfo) => {
+      const unifiedInfo: UnifiedCallStateInfo = {
+        ...info,
+        callId: 'callSid' in info ? info.callSid : info.callId,
+        provider: this.provider,
+      };
+      cb(unifiedInfo);
+    };
+    
+    // Register with the appropriate service based on current provider
+    let unsubscribe: (() => void) | undefined;
     if (this.provider === 'twilio') {
-      liveTwilioService.registerStatusCallback((info: TwilioCallStateInfo) => {
-        this.statusCallback?.({
-          ...info,
-          callId: info.callSid,
-          provider: 'twilio',
-        });
-      });
+      unsubscribe = liveTwilioService.registerStatusCallback(wrapperCb as any);
     } else {
-      telnyxService.registerStatusCallback((info: TelnyxCallStateInfo) => {
-        this.statusCallback?.({
-          ...info,
-          provider: 'telnyx',
-        });
-      });
+      unsubscribe = telnyxService.registerStatusCallback(wrapperCb as any);
     }
+    
+    // Return combined unsubscribe function
+    return () => {
+      this.statusCallbacks.delete(cb);
+      unsubscribe?.();
+    };
   }
 
   /**
@@ -97,10 +105,17 @@ class UnifiedVoiceService {
       throw new Error(`Invalid voice service configuration for provider: ${this.provider}`);
     }
 
-    // Re-register the status callback after initialization
-    if (this.statusCallback) {
-      this.registerStatusCallback(this.statusCallback);
-    }
+    // Re-register existing callbacks with the new provider
+    const existingCallbacks = Array.from(this.statusCallbacks);
+    this.statusCallbacks.clear();
+    // Clean up old unsubscribe functions
+    this.unsubscribeFns.forEach(fn => fn());
+    this.unsubscribeFns = [];
+    // Re-register with new provider
+    existingCallbacks.forEach(cb => {
+      const unsub = this.registerStatusCallback(cb);
+      this.unsubscribeFns.push(unsub);
+    });
   }
 
   /**

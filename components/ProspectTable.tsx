@@ -18,14 +18,16 @@ interface Props {
 interface CallLog {
   id: string;
   prospectId?: string;
-  prospectName: string;
+  prospectName?: string;
   phoneNumber: string;
-  fromNumber: string;
+  fromNumber?: string;
   outcome: string;
   duration: number;
-  note: string;
-  timestamp: string;
+  notes?: string;
+  startedAt: string;
+  endedAt?: string;
   callerName?: string;
+  callerId?: string;
   company?: string;
   callSid?: string;
   endReason?: string;
@@ -57,6 +59,26 @@ const CallHistoryModal: React.FC<{ prospectId: string; prospectName: string; onC
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const formatRelativeTime = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} ${diffMins === 1 ? 'minute' : 'minutes'} ago`;
+    if (diffHours < 24) return `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
+    if (diffDays < 30) return `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`;
+    if (diffDays < 365) {
+      const months = Math.floor(diffDays / 30);
+      return `${months} ${months === 1 ? 'month' : 'months'} ago`;
+    }
+    const years = Math.floor(diffDays / 365);
+    return `${years} ${years === 1 ? 'year' : 'years'} ago`;
   };
 
   const getOutcomeBadge = (outcome: string) => {
@@ -144,9 +166,14 @@ const CallHistoryModal: React.FC<{ prospectId: string; prospectName: string; onC
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          <span className="font-medium text-gray-900 dark:text-white">
-                            {new Date(call.timestamp).toLocaleString()}
-                          </span>
+                          <div>
+                            <div className="font-medium text-gray-900 dark:text-white">
+                              {call.startedAt ? formatRelativeTime(call.startedAt) : 'Unknown date'}
+                            </div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                              {call.startedAt ? new Date(call.startedAt).toLocaleString() : ''}
+                            </div>
+                          </div>
                           <span className={`px-2 py-1 text-xs font-medium rounded flex items-center gap-1 ${badge.bg} ${badge.text}`}>
                             {badge.icon}
                             {call.outcome}
@@ -160,7 +187,7 @@ const CallHistoryModal: React.FC<{ prospectId: string; prospectName: string; onC
                       <div className="grid grid-cols-2 gap-2 text-sm text-gray-600 dark:text-gray-400 mb-2">
                         <div><span className="font-medium">Phone:</span> {call.phoneNumber}</div>
                         <div><span className="font-medium">Caller:</span> {call.callerName || call.fromNumber || 'Unknown'}</div>
-                        {call.note && <div className="col-span-2"><span className="font-medium">Notes:</span> {call.note}</div>}
+                        {call.notes && <div className="col-span-2"><span className="font-medium">Notes:</span> {call.notes}</div>}
                       </div>
                     </div>
                   </div>
@@ -202,7 +229,12 @@ const ProspectRowWithMenu = React.memo(({ prospect, onCall, onDelete, onUpdate, 
           />
         </td>
         <td className="p-4">
-          <div className="font-semibold text-gray-900 dark:text-white">{prospect.firstName} {prospect.lastName}</div>
+          <button
+            onClick={() => onShowCallHistory(prospect.id, `${prospect.firstName} ${prospect.lastName}`)}
+            className="font-semibold text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline transition cursor-pointer text-left"
+          >
+            {prospect.firstName} {prospect.lastName}
+          </button>
         </td>
         <td className="p-4">
           <button
@@ -225,7 +257,12 @@ const ProspectRowWithMenu = React.memo(({ prospect, onCall, onDelete, onUpdate, 
         <td className="p-4">
           <span className={`px-3 py-1 text-xs font-medium rounded-full cursor-pointer hover:underline transition ${
             prospect.status === 'New' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' :
+            prospect.status === 'Callback' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300' :
+            prospect.status === 'Follow Up Required' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300' :
+            prospect.status === 'Busy Later' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300' :
             prospect.status === 'Qualified' ? 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300' :
+            prospect.status === 'Lost' ? 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300' :
+            prospect.status === 'Do Not Call' ? 'bg-red-200 text-red-800 dark:bg-red-900/60 dark:text-red-300' :
             'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
           }`} onClick={() => onShowCallHistory(prospect.id, `${prospect.firstName} ${prospect.lastName}`)}>
             {prospect.status}
@@ -301,6 +338,9 @@ const ProspectRowWithMenu = React.memo(({ prospect, onCall, onDelete, onUpdate, 
                   <input type="email" className="w-full px-3 py-2 rounded border dark:bg-slate-700 dark:text-white" value={editProspect?.email || ''} onChange={e => setEditProspect(p => p ? { ...p, email: e.target.value } : p)} placeholder="Email" />
                   <select className="w-full px-3 py-2 rounded border dark:bg-slate-700 dark:text-white" value={editProspect?.status || ''} onChange={e => setEditProspect(p => p ? { ...p, status: e.target.value as any } : p)}>
                     <option value="New">New</option>
+                    <option value="Callback">Callback</option>
+                    <option value="Follow Up Required">Follow Up Required</option>
+                    <option value="Busy Later">Busy Later</option>
                     <option value="Contacted">Contacted</option>
                     <option value="Qualified">Qualified</option>
                     <option value="Lost">Lost</option>
@@ -353,6 +393,57 @@ export const ProspectTable: React.FC<Props> = React.memo(({ prospects, onCall, o
   const [showCallHistoryModal, setShowCallHistoryModal] = React.useState<{prospectId: string; prospectName: string} | null>(null);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = React.useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const ITEMS_PER_PAGE = 100;
+  
+  // Column filters state
+  const [filters, setFilters] = React.useState<{
+    name: string;
+    phone: string;
+    company: string;
+    status: string;
+    timezone: string;
+  }>({
+    name: '',
+    phone: '',
+    company: '',
+    status: '',
+    timezone: '',
+  });
+  const [showFilters, setShowFilters] = React.useState(false);
+
+  // All available statuses for filtering
+  const allStatuses = ['New', 'Callback', 'Follow Up Required', 'Busy Later', 'Contacted', 'Qualified', 'Lost', 'Do Not Call'];
+  
+  const uniqueTimezones = React.useMemo(() => 
+    [...new Set(prospects.map(p => p.timezone))].filter(Boolean).sort(),
+  [prospects]);
+
+  // Apply filters to prospects
+  const filteredProspects = React.useMemo(() => {
+    return prospects.filter(p => {
+      const fullName = `${p.firstName} ${p.lastName}`.toLowerCase();
+      if (filters.name && !fullName.includes(filters.name.toLowerCase())) return false;
+      if (filters.phone && !p.phone.includes(filters.phone)) return false;
+      if (filters.company && !p.company?.toLowerCase().includes(filters.company.toLowerCase())) return false;
+      if (filters.status && p.status !== filters.status) return false;
+      if (filters.timezone && p.timezone !== filters.timezone) return false;
+      return true;
+    });
+  }, [prospects, filters]);
+
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredProspects.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = startIndex + ITEMS_PER_PAGE;
+  const paginatedProspects = filteredProspects.slice(startIndex, endIndex);
+  
+  // Reset to page 1 when filters change
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [filters]);
 
   const handleFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -387,10 +478,10 @@ export const ProspectTable: React.FC<Props> = React.memo(({ prospects, onCall, o
   };
 
   const toggleSelectAll = () => {
-    if (selectedProspectIds.size === prospects.length) {
+    if (selectedProspectIds.size === paginatedProspects.length) {
       setSelectedProspectIds(new Set());
     } else {
-      setSelectedProspectIds(new Set(prospects.map(p => p.id)));
+      setSelectedProspectIds(new Set(paginatedProspects.map(p => p.id)));
     }
   };
 
@@ -404,16 +495,22 @@ export const ProspectTable: React.FC<Props> = React.memo(({ prospects, onCall, o
 
   return (
     <div className="bg-white dark:bg-slate-800 shadow-sm border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden transition-colors duration-200">
-      <div className="p-5 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center">
+      <div className="p-5 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center flex-wrap gap-3">
         <div className="flex items-center gap-4">
           <h2 className="text-lg font-bold text-gray-800 dark:text-white">Priority Lists</h2>
-          <span className="text-xs font-medium px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full">{prospects.length} leads</span>
+          <span className="text-xs font-medium px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full">{filteredProspects.length} leads</span>
           {selectedProspectIds.size > 0 && (
             <span className="text-xs font-medium px-2 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-full">{selectedProspectIds.size} selected</span>
           )}
         </div>
         
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${showFilters ? 'bg-indigo-600 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-slate-600'}`}
+          >
+            🔍 Filters {Object.values(filters).some(f => f) && `(${Object.values(filters).filter(f => f).length})`}
+          </button>
           {selectedProspectIds.size > 0 && (
             <>
               <button
@@ -446,6 +543,74 @@ export const ProspectTable: React.FC<Props> = React.memo(({ prospects, onCall, o
           </button>
         </div>
       </div>
+
+      {/* Column Filters */}
+      {showFilters && (
+        <div className="p-4 bg-gray-50 dark:bg-slate-700/50 border-b border-gray-200 dark:border-slate-600">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Name</label>
+              <input
+                type="text"
+                value={filters.name}
+                onChange={e => setFilters(f => ({ ...f, name: e.target.value }))}
+                placeholder="Search name..."
+                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Phone</label>
+              <input
+                type="text"
+                value={filters.phone}
+                onChange={e => setFilters(f => ({ ...f, phone: e.target.value }))}
+                placeholder="Search phone..."
+                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Company</label>
+              <input
+                type="text"
+                value={filters.company}
+                onChange={e => setFilters(f => ({ ...f, company: e.target.value }))}
+                placeholder="Search company..."
+                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Status</label>
+              <select
+                value={filters.status}
+                onChange={e => setFilters(f => ({ ...f, status: e.target.value }))}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
+              >
+                <option value="">All Statuses</option>
+                {allStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Timezone</label>
+              <select
+                value={filters.timezone}
+                onChange={e => setFilters(f => ({ ...f, timezone: e.target.value }))}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
+              >
+                <option value="">All Timezones</option>
+                {uniqueTimezones.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="mt-3 flex justify-end">
+            <button
+              onClick={() => setFilters({ name: '', phone: '', company: '', status: '', timezone: '' })}
+              className="px-3 py-1 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+            >
+              Clear All Filters
+            </button>
+          </div>
+        </div>
+      )}
       
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
@@ -454,7 +619,7 @@ export const ProspectTable: React.FC<Props> = React.memo(({ prospects, onCall, o
               <th className="p-4 font-semibold">
                 <input
                   type="checkbox"
-                  checked={selectedProspectIds.size === prospects.length && prospects.length > 0}
+                  checked={selectedProspectIds.size === paginatedProspects.length && paginatedProspects.length > 0}
                   onChange={toggleSelectAll}
                   className="w-4 h-4 rounded cursor-pointer"
                 />
@@ -469,10 +634,10 @@ export const ProspectTable: React.FC<Props> = React.memo(({ prospects, onCall, o
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
-            {prospects.length === 0 ? (
+            {paginatedProspects.length === 0 ? (
               <tr><td colSpan={8} className="p-8 text-center text-gray-500 dark:text-gray-400">No prospects found</td></tr>
             ) : (
-              prospects.map(prospect => (
+              paginatedProspects.map(prospect => (
                 <ProspectRowWithMenu
                   key={prospect.id}
                   prospect={prospect}
@@ -491,6 +656,68 @@ export const ProspectTable: React.FC<Props> = React.memo(({ prospects, onCall, o
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="p-4 border-t border-gray-200 dark:border-slate-700 flex items-center justify-between">
+          <div className="text-sm text-gray-600 dark:text-gray-400">
+            Showing {startIndex + 1}-{Math.min(endIndex, filteredProspects.length)} of {filteredProspects.length} prospects
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentPage(1)}
+              disabled={currentPage === 1}
+              className="px-3 py-1 text-sm rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              First
+            </button>
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="px-3 py-1 text-sm rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              ← Prev
+            </button>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let pageNum: number;
+                if (totalPages <= 5) {
+                  pageNum = i + 1;
+                } else if (currentPage <= 3) {
+                  pageNum = i + 1;
+                } else if (currentPage >= totalPages - 2) {
+                  pageNum = totalPages - 4 + i;
+                } else {
+                  pageNum = currentPage - 2 + i;
+                }
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={`w-8 h-8 text-sm rounded ${currentPage === pageNum ? 'bg-indigo-600 text-white' : 'border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-600'}`}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1 text-sm rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next →
+            </button>
+            <button
+              onClick={() => setCurrentPage(totalPages)}
+              disabled={currentPage === totalPages}
+              className="px-3 py-1 text-sm rounded border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Last
+            </button>
+          </div>
+        </div>
+      )}
 
       {showCallHistoryModal && (
         <CallHistoryModal
