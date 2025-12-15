@@ -7,9 +7,10 @@ exports.getCallHistory = async (req, res) => {
     const formatted = calls.map(c => ({
       id: c.id,
       prospectId: c.prospect_id,
-      prospectName: c.prospect_first_name && c.prospect_last_name 
-        ? `${c.prospect_first_name} ${c.prospect_last_name}` 
-        : 'Unknown',
+      prospectName: c.resolved_prospect_name || c.prospect_name || 
+        (c.prospect_first_name && c.prospect_last_name 
+          ? `${c.prospect_first_name} ${c.prospect_last_name}`.trim() 
+          : 'Unknown'),
       phoneNumber: c.phone_number,
       fromNumber: c.from_number,
       outcome: c.outcome,
@@ -57,7 +58,8 @@ exports.logCall = async (req, res) => {
       callSid: callSid || null,
       endReason: endReason || null,
       answeredBy: answeredBy || null,
-      recordingUrl: recordingUrl
+      recordingUrl: recordingUrl,
+      prospectName: prospectName || null
     });
 
     // If prospect exists, update their last_call timestamp and status

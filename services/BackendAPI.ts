@@ -308,6 +308,18 @@ export const backendAPI = {
     return res.json();
   },
 
+  async getTelnyxNumbers(): Promise<TwilioPhoneNumber[]> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/telnyx/numbers`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    if (!res.ok) {
+      console.error('Failed to fetch Telnyx numbers:', res.status);
+      return [];
+    }
+    return res.json();
+  },
+
   // --- Real-time Call Status ---
 
   async getCallStatus(callSid: string): Promise<TwilioCallStatus> {

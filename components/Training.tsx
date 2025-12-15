@@ -85,6 +85,9 @@ const Training: React.FC = () => {
   const [shouldListen, setShouldListen] = useState(false);
   const [conversationSessionId, setConversationSessionId] = useState<string | null>(null);
   
+  // Ref to always have latest session ID in closures
+  const sessionIdRef = useRef<string | null>(null);
+  
   // Voice and history state
   const [availableVoices, setAvailableVoices] = useState<VoiceOption[]>([]);
   const [selectedVoice, setSelectedVoice] = useState<string>('alloy');
@@ -97,6 +100,12 @@ const Training: React.FC = () => {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioQueueRef = useRef<AudioBufferSourceNode[]>([]);
   const isPlayingRef = useRef(false);
+
+  // Keep sessionIdRef in sync with state
+  useEffect(() => {
+    sessionIdRef.current = conversationSessionId;
+    console.log('🔄 Session ID ref updated:', conversationSessionId);
+  }, [conversationSessionId]);
 
   // Load current API key status and voices on mount
   useEffect(() => {
@@ -225,6 +234,7 @@ const Training: React.FC = () => {
       
       // Clear any previous session ID first - ensures fresh start
       setConversationSessionId(null);
+      sessionIdRef.current = null; // Clear ref too
       console.log('🔄 Cleared previous session, starting fresh...');
       
       // Create DB session for history tracking
@@ -247,6 +257,7 @@ const Training: React.FC = () => {
           const data = await response.json();
           newSessionId = data.sessionId;
           setConversationSessionId(data.sessionId);
+          sessionIdRef.current = data.sessionId; // Update ref immediately for closures
           console.log('📝 Created NEW fresh session:', data.sessionId);
         }
       } catch (dbError) {
@@ -336,7 +347,7 @@ const Training: React.FC = () => {
           text: text,
           scenario: scenario.id,
           voice: selectedVoice,  // Use user-selected voice
-          sessionId: conversationSessionId  // Track TTS usage per session
+          sessionId: sessionIdRef.current  // Use ref for latest session ID
         })
       });
 
@@ -1089,6 +1100,10 @@ Responses: 8-15 words.`
       const apiUrl = window.location.origin.replace(':5173', ':3001') + '/api/training/generate-response';
       console.log('🌐 Full URL:', apiUrl);
       
+      // Use ref for latest session ID value (closures capture stale state)
+      const currentSessionId = sessionIdRef.current;
+      console.log('📝 Using session ID from ref:', currentSessionId);
+      
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
@@ -1099,7 +1114,7 @@ Responses: 8-15 words.`
           userMessage: userText,
           systemPrompt: systemPrompt,
           scenario: scenario.id,
-          sessionId: conversationSessionId // Pass session ID for conversation history
+          sessionId: currentSessionId // Use ref value for latest session ID
         })
       });
 
@@ -1115,8 +1130,9 @@ Responses: 8-15 words.`
       aiResponse = data.response;
       
       // Save session ID for conversation continuity
-      if (data.sessionId && !conversationSessionId) {
+      if (data.sessionId && !sessionIdRef.current) {
         setConversationSessionId(data.sessionId);
+        sessionIdRef.current = data.sessionId; // Update ref immediately
         console.log('📝 New conversation session:', data.sessionId);
       }
       console.log('✅ Got AI response (message #' + (data.messageCount || '?') + '):', aiResponse);
@@ -1214,6 +1230,7 @@ Responses: 8-15 words.`
     setIsMuted(false);
     setUserTranscript('');
     setConversationSessionId(null);
+    sessionIdRef.current = null; // Clear ref on end
     
     const minutes = Math.floor(sessionDuration / 60);
     const seconds = sessionDuration % 60;

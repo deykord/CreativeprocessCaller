@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { backendAPI } from '../services/BackendAPI';
 import { voiceService } from '../services/VoiceService';
+import { standardizePhoneNumber } from '../utils/phoneUtils';
 import ActivityLog from './ActivityLog';
 import PhoneCallHistory from './PhoneCallHistory';
 import { LeadListManager } from './LeadListManager';
@@ -789,18 +790,29 @@ const PowerDialer: React.FC<Props> = ({
   };
 
   useEffect(() => {
-    const loadTwilioNumbers = async () => {
+    const loadTelnyxNumbers = async () => {
       try {
-        const numbers = await backendAPI.getTwilioNumbers();
-        setTwilioNumbers(numbers);
-        if (numbers.length > 0 && !callFromNumber) {
-          setCallFromNumber(numbers[0].phoneNumber);
+        // Try to load Telnyx numbers first
+        const telnyxNumbers = await backendAPI.getTelnyxNumbers();
+        if (telnyxNumbers && telnyxNumbers.length > 0) {
+          setTwilioNumbers(telnyxNumbers);
+          if (!callFromNumber) {
+            setCallFromNumber(telnyxNumbers[0].phoneNumber);
+          }
+          return;
+        }
+        
+        // Fallback to Twilio numbers if Telnyx not available
+        const twilioNumbers = await backendAPI.getTwilioNumbers();
+        setTwilioNumbers(twilioNumbers);
+        if (twilioNumbers.length > 0 && !callFromNumber) {
+          setCallFromNumber(twilioNumbers[0].phoneNumber);
         }
       } catch (error) {
-        console.error('Failed to load Twilio numbers:', error);
+        console.error('Failed to load phone numbers:', error);
       }
     };
-    loadTwilioNumbers();
+    loadTelnyxNumbers();
   }, []);
   
   // Load voicemails

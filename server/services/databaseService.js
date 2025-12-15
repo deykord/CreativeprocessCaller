@@ -361,8 +361,13 @@ class DatabaseService {
     try {
       let query = `
         SELECT cl.*, 
-               p.first_name as prospect_first_name, 
-               p.last_name as prospect_last_name,
+               COALESCE(p.first_name, '') as prospect_first_name, 
+               COALESCE(p.last_name, '') as prospect_last_name,
+               COALESCE(
+                 NULLIF(TRIM(COALESCE(p.first_name, '') || ' ' || COALESCE(p.last_name, '')), ''),
+                 cl.prospect_name,
+                 'Unknown'
+               ) as resolved_prospect_name,
                u.first_name as caller_first_name,
                u.last_name as caller_last_name
         FROM call_logs cl
@@ -550,7 +555,8 @@ class DatabaseService {
         disposition,
         callSid,
         endReason,
-        answeredBy
+        answeredBy,
+        prospectName
       } = callData;
 
       let actualCallerId = callerId || userId || null;
@@ -570,8 +576,8 @@ class DatabaseService {
 
       const result = await pool.query(
         `INSERT INTO call_logs 
-         (prospect_id, caller_id, phone_number, from_number, outcome, duration, notes, recording_url, call_sid, end_reason, answered_by, ended_at, started_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
+         (prospect_id, caller_id, phone_number, from_number, outcome, duration, notes, recording_url, call_sid, end_reason, answered_by, prospect_name, ended_at, started_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
          RETURNING *`,
         [
           prospectId || null,
@@ -584,7 +590,8 @@ class DatabaseService {
           recordingUrl || null,
           callSid || null,
           endReason || null,
-          answeredBy || null
+          answeredBy || null,
+          prospectName || null
         ]
       );
 

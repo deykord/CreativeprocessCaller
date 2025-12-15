@@ -19,6 +19,7 @@ import { LayoutGrid, Users, Phone, Settings as SettingsIcon, LogOut, Bell, Histo
 // SERVICES
 import { voiceService } from './services/VoiceService';
 import { backendAPI } from './services/BackendAPI';
+import { standardizePhoneNumber } from './utils/phoneUtils';
 
 // Lazy load heavy components
 const LeadListManager = React.lazy(() => import('./components/LeadListManager').then(m => ({ default: m.LeadListManager })));
@@ -172,8 +173,12 @@ const Dashboard: React.FC = () => {
       return;
     }
     try {
+      // Standardize phone number to E.164 format for Telnyx compatibility
+      const standardizedPhone = standardizePhoneNumber(prospect.phone);
+      console.log(`Standardized phone: ${prospect.phone} -> ${standardizedPhone}`);
+      
       setCurrentCall({ prospect, state: CallState.DIALING, startTime: Date.now() });
-      await activeVoiceService.connect(prospect.phone, callerId || undefined);
+      await activeVoiceService.connect(standardizedPhone, callerId || undefined);
       setStats(prev => ({ ...prev, callsMade: prev.callsMade + 1 }));
     } catch (err: any) {
       console.error("Call failed", err);
@@ -209,13 +214,17 @@ const Dashboard: React.FC = () => {
       alert("Twilio is not ready. Please wait for initialization.");
       return;
     }
+    // Standardize phone number to E.164 format
+    const standardizedPhone = standardizePhoneNumber(phoneNumber);
+    console.log(`Manual call - Standardized phone: ${phoneNumber} -> ${standardizedPhone}`);
+    
     const manualProspect: Prospect = {
       id: `manual-${Date.now()}`,
       firstName: 'Manual',
       lastName: 'Dial',
       company: 'Unknown',
       title: 'Unknown',
-      phone: phoneNumber,
+      phone: standardizedPhone,
       email: '',
       status: 'New',
       timezone: 'Unknown'

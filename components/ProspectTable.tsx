@@ -159,7 +159,7 @@ const CallHistoryModal: React.FC<{ prospectId: string; prospectName: string; onC
                       </div>
                       <div className="grid grid-cols-2 gap-2 text-sm text-gray-600 dark:text-gray-400 mb-2">
                         <div><span className="font-medium">Phone:</span> {call.phoneNumber}</div>
-                        <div><span className="font-medium">Caller:</span> {call.callerName || 'Unknown'}</div>
+                        <div><span className="font-medium">Caller:</span> {call.callerName || call.fromNumber || 'Unknown'}</div>
                         {call.note && <div className="col-span-2"><span className="font-medium">Notes:</span> {call.note}</div>}
                       </div>
                     </div>
