@@ -126,9 +126,13 @@ class UnifiedVoiceService {
       throw new Error('Voice service not initialized');
     }
 
+    console.log(`📞 VoiceService.connect() using provider: ${this.provider}`);
+    
     if (this.provider === 'twilio') {
+      console.log('→ Routing to Twilio service');
       return liveTwilioService.connect(phoneNumber, fromNumber);
     } else {
+      console.log('→ Routing to Telnyx service');
       return telnyxService.connect(phoneNumber, fromNumber);
     }
   }

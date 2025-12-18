@@ -13,7 +13,8 @@ const SearchFilterBar: React.FC<{
   onSearch: (term: string) => void;
   onFilter: (status: string) => void;
   totalProspects: number;
-}> = React.memo(({ onSearch, onFilter, totalProspects }) => {
+  dispositions: string[];
+}> = React.memo(({ onSearch, onFilter, totalProspects, dispositions }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
 
@@ -45,10 +46,9 @@ const SearchFilterBar: React.FC<{
       {showFilters && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2 p-3 bg-gray-50 dark:bg-slate-700/50 rounded-lg">
           <button onClick={() => onFilter('')} className="px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition">All</button>
-          <button onClick={() => onFilter('New')} className="px-3 py-2 bg-white dark:bg-slate-600 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition">New</button>
-          <button onClick={() => onFilter('Contacted')} className="px-3 py-2 bg-white dark:bg-slate-600 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition">Contacted</button>
-          <button onClick={() => onFilter('Qualified')} className="px-3 py-2 bg-white dark:bg-slate-600 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition">Qualified</button>
-          <button onClick={() => onFilter('Lost')} className="px-3 py-2 bg-white dark:bg-slate-600 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition">Lost</button>
+          {dispositions.map(d => (
+            <button key={d} onClick={() => onFilter(d)} className="px-3 py-2 bg-white dark:bg-slate-600 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition">{d}</button>
+          ))}
         </div>
       )}
     </div>
@@ -298,7 +298,19 @@ export const ProspectTableEnhanced: React.FC<Props> = React.memo(({ prospects, o
     });
   }, []);
 
-  // Filter and search prospects
+  // Build latest disposition map from prospect.callHistory when available
+  const latestDispositionMap = useMemo(() => {
+    const map: Record<string, string | undefined> = {};
+    for (const p of prospects) {
+      if (Array.isArray(p.callHistory) && p.callHistory.length > 0) {
+        const sorted = [...p.callHistory].sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+        map[p.id] = sorted[0].outcome;
+      }
+    }
+    return map;
+  }, [prospects]);
+
+  // Filter and search prospects (use latest disposition if available)
   const filteredProspects = useMemo(() => {
     return prospects.filter(prospect => {
       const matchesSearch = 
@@ -306,12 +318,14 @@ export const ProspectTableEnhanced: React.FC<Props> = React.memo(({ prospects, o
         prospect.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         prospect.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
         prospect.phone.includes(searchTerm);
-      
-      const matchesFilter = !filterStatus || prospect.status === filterStatus;
-      
+
+      const latest = latestDispositionMap[prospect.id];
+      const effectiveStatus = latest || prospect.status;
+      const matchesFilter = !filterStatus || effectiveStatus === filterStatus;
+
       return matchesSearch && matchesFilter;
     });
-  }, [prospects, searchTerm, filterStatus]);
+  }, [prospects, searchTerm, filterStatus, latestDispositionMap]);
 
   const prospectRows = useMemo(() => 
     filteredProspects.map((prospect) => (
@@ -354,10 +368,12 @@ export const ProspectTableEnhanced: React.FC<Props> = React.memo(({ prospects, o
       </div>
 
       {/* FEATURE 1: Search and Filter */}
+      {/* Dispositions list is a fixed set; show to filter by latest call outcome */}
       <SearchFilterBar 
         onSearch={setSearchTerm}
         onFilter={setFilterStatus}
         totalProspects={filteredProspects.length}
+        dispositions={["Connected","Voicemail","Busy","No Answer","Meeting Set","Not Interested","Callback","Wrong Number"]}
       />
 
       {/* FEATURE 3: Bulk Actions */}

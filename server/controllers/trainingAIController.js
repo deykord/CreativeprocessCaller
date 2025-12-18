@@ -14,14 +14,16 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000); // Clean every 5 minutes
 
-// Available OpenAI TTS voices
+// Available ElevenLabs TTS voices
 const AVAILABLE_VOICES = [
-  { id: 'alloy', name: 'Alloy', description: 'Neutral, balanced', gender: 'neutral' },
-  { id: 'echo', name: 'Echo', description: 'Warm, male', gender: 'male' },
-  { id: 'fable', name: 'Fable', description: 'British accent, male', gender: 'male' },
-  { id: 'onyx', name: 'Onyx', description: 'Deep, authoritative', gender: 'male' },
-  { id: 'nova', name: 'Nova', description: 'Friendly, female', gender: 'female' },
-  { id: 'shimmer', name: 'Shimmer', description: 'Soft, female', gender: 'female' }
+  { id: 'pNInz6obpgDQGcFmaJgB', name: 'Adam', description: 'Deep, authoritative male', gender: 'male' },
+  { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella', description: 'Soft, warm female', gender: 'female' },
+  { id: 'ErXwobaYiN019PkySvjV', name: 'Antoni', description: 'Well-rounded male', gender: 'male' },
+  { id: 'MF3mGyEYCl7XYWbV9V6O', name: 'Elli', description: 'Young, energetic female', gender: 'female' },
+  { id: 'TxGEqnHWrfWFTfGW9XjX', name: 'Josh', description: 'Professional male', gender: 'male' },
+  { id: 'VR6AewLTigWG4xSOukaG', name: 'Arnold', description: 'Crisp, confident male', gender: 'male' },
+  { id: 'ThT5KcBeYPX3keUQqHPh', name: 'Dorothy', description: 'Pleasant female', gender: 'female' },
+  { id: 'pqHfZKP75CvOlQylNhV4', name: 'Bill', description: 'Trustworthy male', gender: 'male' }
 ];
 
 // Get available voices
@@ -379,43 +381,50 @@ const generateSpeech = async (req, res) => {
   }
 
   try {
-    // Use provided voice or get from scenario
-    const selectedVoice = voice || getVoiceForScenario(scenario) || 'alloy';
+    // Use provided voice or get from scenario (default to Adam)
+    const selectedVoice = voice || getVoiceForScenario(scenario) || 'pNInz6obpgDQGcFmaJgB';
     
-    console.log('🔊 Generating TTS with voice:', selectedVoice);
+    console.log('🔊 Generating ElevenLabs TTS with voice:', selectedVoice);
     console.log('📝 Text:', text.substring(0, 50) + '...');
 
-    const response = await fetch('https://api.openai.com/v1/audio/speech', {
+    if (!config.elevenlabs?.apiKey) {
+      throw new Error('ElevenLabs API key not configured');
+    }
+
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${selectedVoice}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.openai.apiKey}`
+        'xi-api-key': config.elevenlabs.apiKey
       },
       body: JSON.stringify({
-        model: 'tts-1',  // Use tts-1-hd for higher quality (more expensive)
-        input: text,
-        voice: selectedVoice,
-        response_format: 'mp3',
-        speed: 1.0
+        text: text,
+        model_id: 'eleven_turbo_v2_5',  // Fast, low-latency model
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+          style: 0.0,
+          use_speaker_boost: true
+        }
       })
     });
 
     if (!response.ok) {
       const error = await response.text();
-      console.error('❌ OpenAI TTS error:', error);
-      throw new Error('OpenAI TTS request failed');
+      console.error('❌ ElevenLabs TTS error:', error);
+      throw new Error('ElevenLabs TTS request failed');
     }
 
     // Get audio as buffer and send
     const audioBuffer = await response.arrayBuffer();
     
     // Track TTS usage for cost calculation
-    // TTS pricing: $15 per 1M characters
+    // ElevenLabs pricing: ~$0.30 per 1K characters (turbo model)
     const charCount = text.length;
-    const costUsd = charCount * 0.000015;
+    const costUsd = (charCount / 1000) * 0.30;
     const audioSeconds = audioBuffer.byteLength / 16000; // Rough estimate: 16KB/s for MP3
     
-    console.log('💰 TTS chars:', charCount, '= $', costUsd.toFixed(6));
+    console.log('💰 ElevenLabs TTS chars:', charCount, '= $', costUsd.toFixed(6));
     
     // Save TTS usage to database if we have a valid session ID
     if (sessionId && sessionId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
@@ -424,7 +433,7 @@ const generateSpeech = async (req, res) => {
         await pool.query(
           `INSERT INTO training_usage (session_id, user_id, api_type, model, audio_seconds, cost_usd)
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [sessionId, userId, 'tts', 'tts-1', audioSeconds, costUsd]
+          [sessionId, userId, 'tts', 'eleven_turbo_v2_5', audioSeconds, costUsd]
         );
       } catch (dbError) {
         console.error('⚠️ Failed to save TTS usage (continuing):', dbError.message);
@@ -437,7 +446,7 @@ const generateSpeech = async (req, res) => {
     });
     
     res.send(Buffer.from(audioBuffer));
-    console.log('✅ Audio generated successfully');
+    console.log('✅ ElevenLabs audio generated successfully');
 
   } catch (error) {
     console.error('❌ Error generating speech:', error);

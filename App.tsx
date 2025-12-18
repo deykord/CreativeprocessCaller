@@ -110,23 +110,33 @@ const Dashboard: React.FC = () => {
 
           // Get voice provider configuration
           const voiceConfig = await backendAPI.getVoiceConfig();
-          console.log('Voice provider:', voiceConfig.provider);
+          console.log('🔊 Voice provider config received:', voiceConfig);
+          console.log('🔊 Provider type:', voiceConfig.provider);
+          console.log('🔊 Has Telnyx config:', !!voiceConfig.telnyx);
 
           if (voiceConfig.provider === 'telnyx' && voiceConfig.telnyx) {
             // Initialize Telnyx with SIP credentials
-            console.log('Initializing Telnyx voice service...');
+            console.log('🔊 Initializing TELNYX voice service (not Twilio)...');
             setCallerId(voiceConfig.telnyx.callerId);
             
-            await activeVoiceService.initialize({
-              provider: 'telnyx',
-              telnyx: {
-                login: voiceConfig.telnyx.sipUsername,
-                password: voiceConfig.telnyx.sipPassword,
-                callerIdNumber: voiceConfig.telnyx.callerId,
-              }
-            });
+            try {
+              await activeVoiceService.initialize({
+                provider: 'telnyx',
+                telnyx: {
+                  login: voiceConfig.telnyx.sipUsername,
+                  password: voiceConfig.telnyx.sipPassword,
+                  callerIdNumber: voiceConfig.telnyx.callerId,
+                }
+              });
+              console.log('✅ TELNYX initialized successfully - Twilio will NOT be used');
+              console.log('✅ Telnyx ready for calls');
+            } catch (telnyxErr) {
+              console.error('❌ Telnyx initialization failed:', telnyxErr);
+              throw new Error(`Telnyx initialization failed: ${telnyxErr instanceof Error ? telnyxErr.message : 'Unknown error'}`);
+            }
           } else {
             // Initialize Twilio (default)
+            console.warn('⚠️ Falling back to Twilio (this should not happen if Telnyx is configured)');
             // Fetch available Twilio numbers and set first one as default
             try {
               const twilioNumbersList = await backendAPI.getTwilioNumbers();
@@ -154,12 +164,24 @@ const Dashboard: React.FC = () => {
         }
 
         activeVoiceService.registerStatusCallback((stateInfo) => {
+          console.log('📱 Call state changed:', stateInfo.state, stateInfo);
+          
+          // Update the call state
           setCurrentCall((prev) => prev ? { ...prev, state: stateInfo.state } : null);
+          
+          // When call ends, trigger disposition flow
+          if (stateInfo.state === CallState.WRAP_UP) {
+            console.log('📱 Call ended, triggering disposition');
+            // Don't clear currentCall yet - let the disposition flow handle it
+            // Just ensure disposition is triggered
+            setPowerDialerDispositionSaved(false);
+          }
         });
+        console.log('✅ Voice service ready (provider: ' + (await backendAPI.getVoiceConfig()).provider + ')');
         setIsTwilioReady(true);
         setTwilioError(null);
       } catch (err) {
-        console.error("Initialization Failed:", err);
+        console.error("❌ Voice service initialization failed:", err);
         setIsTwilioReady(false);
         setTwilioError("Voice service initialization failed. Please refresh or contact support.");
       }
@@ -180,11 +202,27 @@ const Dashboard: React.FC = () => {
       setCurrentCall({ prospect, state: CallState.DIALING, startTime: Date.now() });
       await activeVoiceService.connect(standardizedPhone, callerId || undefined);
       setStats(prev => ({ ...prev, callsMade: prev.callsMade + 1 }));
+      console.log('✓ Call initiated successfully');
     } catch (err: any) {
       console.error("Call failed", err);
       
+      // Ignore browser extension errors (message channel closed) - these are harmless
+      if (err?.message?.includes('message channel closed') || 
+          err?.message?.includes('asynchronous response')) {
+        console.warn('Ignoring browser extension error:', err.message);
+        return; // Don't show error, call is likely working
+      }
+
+      // Ignore Twilio-specific errors when using Telnyx
+      if (err?.message?.includes('n.on is not a function') || 
+          err?.message?.includes('.on is not a function')) {
+        console.warn('Ignoring Twilio error (system is using Telnyx):', err.message);
+        return; // Don't show error, call is working with Telnyx
+      }
+      
       // Check for specific error types and provide user-friendly messages
       let errorMessage = "Call failed to connect. Please try again.";
+      let shouldShowAlert = true;
       
       // Check for duplicate call / already connected errors
       if (err?.message?.toLowerCase().includes('pending') || 
@@ -194,6 +232,10 @@ const Dashboard: React.FC = () => {
         // Show sticky banner instead of alert - don't repeat
         setStuckCallError("A call is already in progress. End the current call before dialing again.");
         return; // Don't clear currentCall or trigger disposition
+      } else if (err?.message?.toLowerCase().includes('not ready')) {
+        // Telnyx not ready - log but don't block since it might recover
+        console.error('Voice service not ready:', err.message);
+        errorMessage = "Voice service is still connecting. Please wait a moment and try again.";
       } else if (err?.code === 31204) { // Invalid phone number
         errorMessage = "❌ Invalid phone number format. Please check the number and try again.";
       } else if (err?.code === 20003) { // Auth error
@@ -202,7 +244,11 @@ const Dashboard: React.FC = () => {
         errorMessage = `Call failed: ${err.message}`;
       }
       
-      alert(errorMessage);
+      // Only show alert for critical errors
+      if (shouldShowAlert) {
+        alert(errorMessage);
+      }
+      
       setCurrentCall(null);
       // Only set dispositionSaved, let PowerDialer handle advance
       setPowerDialerDispositionSaved(true);

@@ -5,7 +5,14 @@ const authMiddleware = (req, res, next) => {
     const token = req.headers.authorization?.split(' ')[1];
 
     if (!token) {
-      return res.status(401).json({ error: 'No token provided' });
+        // Allow unauthenticated call log creation from external systems
+        // (POST /api/calls) - handled as optional auth elsewhere, but some middleware
+        // paths may still call this middleware; be permissive here to avoid 401s.
+        if (req.method === 'POST' && req.path && req.path.startsWith('/calls')) {
+          console.log('Auth middleware allowing unauthenticated POST to /calls');
+          return next();
+        }
+        return res.status(401).json({ error: 'No token provided' });
     }
 
     const decoded = authService.verifyToken(token);

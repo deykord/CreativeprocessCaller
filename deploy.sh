@@ -24,11 +24,8 @@ NC='\033[0m' # No Color
 # Configuration
 PROJECT_DIR="/root/CreativeprocessCaller"
 WEBROOT_PR="/var/www/salescallagent.my"
-WEBROOT_DEV="/var/www/salescallagent.my/dev"
 API_URL_PR="http://localhost:3001/api"
-API_URL_DEV="http://localhost:3002/api"
 FRONTEND_URL_PR="https://salescallagent.my"
-FRONTEND_URL_DEV="https://salescallagent.my/dev"
 
 # Counters
 TESTS_PASSED=0
@@ -104,7 +101,7 @@ preflight_checks() {
         exit 1
     fi
     
-    mkdir -p "$WEBROOT_PR" "$WEBROOT_DEV"
+    mkdir -p "$WEBROOT_PR"
     log_success "Webroots ready"
 }
 
@@ -173,7 +170,8 @@ deploy_frontend() {
     local WEBROOT
     
     if [ "$TARGET" = "dev" ]; then
-        WEBROOT="$WEBROOT_DEV"
+        log_error "Dev deployment is no longer supported."
+        exit 1
     else
         WEBROOT="$WEBROOT_PR"
     fi
@@ -302,9 +300,8 @@ deploy_dev() {
         exit 1
     fi
     
-    build_frontend "dev"
-    deploy_frontend "dev"
-    restart_backend "dev"
+    log_error "Dev deployment is no longer supported."
+    exit 1
     
     if [ "$CURRENT_BRANCH" != "dev" ]; then
         log_info "Returning to $CURRENT_BRANCH branch..."

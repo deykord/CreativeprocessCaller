@@ -23,6 +23,9 @@ router.use('/telnyx', telnyxRoutes);
 router.use('/prospects', prospectRoutes);
 // router.use('/prospects', prospectExtensionsRoutes); // Additional prospect endpoints - temporarily disabled
 router.use('/calls', callRoutes);
+
+// Note: POST /calls accepts optional auth via the calls router (optionalAuth middleware).
+// The explicit top-level POST handler was removed to avoid duplicate route registrations.
 router.use('/messages', messageRoutes);
 router.use('/lead-lists', leadListRoutes);
 router.use('/sales-floor', salesFloorRoutes);

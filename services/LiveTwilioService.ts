@@ -134,7 +134,10 @@ class LiveTwilioService {
    * Make an outbound call
    */
   async connect(phoneNumber: string, fromNumber?: string) {
-    if (!this.device) throw new Error("Device not initialized");
+    if (!this.device) {
+      console.warn('Twilio device not initialized - this service should not be called if using Telnyx');
+      throw new Error("Twilio device not initialized. Check voice provider configuration.");
+    }
 
     this.localDisconnect = false;
     this.callStartTime = null;
@@ -144,18 +147,32 @@ class LiveTwilioService {
     if (fromNumber) params.callerId = fromNumber;
 
     try {
+      console.log('Twilio: Calling device.connect() with params:', params);
       const call = await this.device.connect({ params });
-      this.currentCall = call;
-      // The callSid is available on the call object after connection
-      // Try multiple ways to get the CallSid
-      this.currentCallSid = (call as any).parameters?.CallSid 
-        || (call as any).customParameters?.get?.('CallSid')
-        || (call as any)._mediaHandler?.callSid
-        || null;
       
-      console.log('Call connected, CallSid:', this.currentCallSid);
-      this.setupCallListeners(call);
-      return call;
+      console.log('Twilio: device.connect() returned:', {
+        type: typeof call,
+        isNull: call === null,
+        isUndefined: call === undefined,
+        hasOn: call && typeof call.on === 'function',
+        constructor: call?.constructor?.name,
+        keys: call ? Object.keys(call).slice(0, 10) : []
+      });
+      
+      // Validate the call object before proceeding
+      if (!call) {
+        console.error('Device.connect() returned null or undefined');
+        throw new Error("Device.connect() returned null or undefined");
+      }
+      
+      // Check if call is a Promise that needs to be awaited again
+      if (call instanceof Promise) {
+        console.log('Call object is a Promise, awaiting it...');
+        const resolvedCall = await call;
+        return this.handleCallObject(resolvedCall, params);
+      }
+      
+      return this.handleCallObject(call, params);
     } catch (err) {
       console.error("Connection failed", err);
       this.emitStatus(CallState.WRAP_UP, { endReason: CallEndReason.FAILED });
@@ -163,9 +180,60 @@ class LiveTwilioService {
     }
   }
 
+  private handleCallObject(call: any, params: any): Call {
+    if (!call) {
+      throw new Error("Call object is null or undefined");
+    }
+    
+    if (typeof call.on !== 'function') {
+      console.error("Call object missing .on() method. Call object details:", {
+        type: typeof call,
+        constructor: call?.constructor?.name,
+        keys: Object.keys(call),
+        proto: Object.getPrototypeOf(call),
+        methods: Object.getOwnPropertyNames(Object.getPrototypeOf(call) || {})
+      });
+      throw new Error("Invalid call object - missing event handler method. Type: " + typeof call);
+    }
+    
+    this.currentCall = call;
+    // The callSid is available on the call object after connection
+    // Try multiple ways to get the CallSid
+    this.currentCallSid = (call as any).parameters?.CallSid 
+      || (call as any).customParameters?.get?.('CallSid')
+      || (call as any)._mediaHandler?.callSid
+      || null;
+    
+    console.log('Call connected, CallSid:', this.currentCallSid);
+    this.setupCallListeners(call);
+    return call;
+  }
+
   private setupCallListeners(call: Call) {
+    // Safety check - ensure call object has the .on() method
+    if (!call || typeof call.on !== 'function') {
+      console.error('Invalid call object - missing .on() method:', call);
+      this.emitStatus(CallState.WRAP_UP, { endReason: CallEndReason.FAILED });
+      return;
+    }
+
+    // Wrap all event handlers in try-catch to prevent errors from breaking the flow
+    const safeEventHandler = (eventName: string, handler: Function) => {
+      try {
+        call.on(eventName as any, (...args: any[]) => {
+          try {
+            handler(...args);
+          } catch (err) {
+            console.error(`Error in Twilio ${eventName} handler:`, err);
+          }
+        });
+      } catch (err) {
+        console.error(`Error registering Twilio ${eventName} listener:`, err);
+      }
+    };
+
     // Called when the call is accepted/answered
-    call.on('accept', () => {
+    safeEventHandler('accept', () => {
       this.callStartTime = new Date();
       // Get CallSid when call is accepted - try multiple properties
       const callSid = (call as any).parameters?.CallSid 
@@ -182,7 +250,7 @@ class LiveTwilioService {
     });
 
     // Called when the call is ringing
-    call.on('ringing', (hasEarlyMedia: boolean) => {
+    safeEventHandler('ringing', (hasEarlyMedia: boolean) => {
       console.log('Call is ringing, hasEarlyMedia:', hasEarlyMedia);
       // Also try to get CallSid on ringing
       const callSid = (call as any).parameters?.CallSid 
@@ -197,7 +265,7 @@ class LiveTwilioService {
     });
 
     // Called when the call is disconnected
-    call.on('disconnect', (call: Call) => {
+    safeEventHandler('disconnect', (call: Call) => {
       console.log('Call disconnected');
       
       // Determine who hung up based on our local tracking
@@ -218,7 +286,7 @@ class LiveTwilioService {
     });
 
     // Called when there's a call error
-    call.on('error', (err: any) => {
+    safeEventHandler('error', (err: any) => {
       console.error("Call error", err);
       
       // Map error codes to end reasons
@@ -233,7 +301,7 @@ class LiveTwilioService {
     });
 
     // Called when call is rejected
-    call.on('reject', () => {
+    safeEventHandler('reject', () => {
       console.log('Call rejected');
       this.emitStatus(CallState.WRAP_UP, { endReason: CallEndReason.CALL_REJECTED });
       this.currentCall = null;
@@ -241,7 +309,7 @@ class LiveTwilioService {
     });
 
     // Called when call is canceled
-    call.on('cancel', () => {
+    safeEventHandler('cancel', () => {
       console.log('Call canceled');
       this.emitStatus(CallState.WRAP_UP, { endReason: CallEndReason.CANCELED });
       this.currentCall = null;

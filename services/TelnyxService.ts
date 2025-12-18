@@ -92,8 +92,14 @@ class TelnyxService {
    */
   async initialize(credentials: TelnyxCredentials): Promise<this> {
     try {
+      console.log('Initializing Telnyx with credentials:', { login: credentials.login, hasPassword: !!credentials.password });
       this.credentials = credentials;
       this.isReady = false;
+
+      // Validate credentials
+      if (!credentials.login || !credentials.password) {
+        throw new Error('Telnyx credentials missing: login and password are required');
+      }
 
       // Create audio element for remote audio if it doesn't exist
       this.ensureAudioElement();
@@ -103,6 +109,7 @@ class TelnyxService {
         this.readyResolve = resolve;
       });
 
+      console.log('Creating TelnyxRTC instance...');
       this.client = new TelnyxRTC({
         login: credentials.login,
         password: credentials.password,
@@ -115,22 +122,27 @@ class TelnyxService {
       this.client.remoteElement = 'telnyx-remote-audio';
 
       // Set up event listeners BEFORE connecting
+      console.log('Setting up Telnyx event listeners...');
       this.setupClientListeners();
 
       // Connect to Telnyx
+      console.log('Connecting to Telnyx...');
       await this.client.connect();
+      console.log('Telnyx connect() completed');
 
-      // Wait for the ready event (max 10 seconds)
+      // Wait for the ready event (max 30 seconds)
+      console.log('Waiting for telnyx.ready event...');
       const timeout = new Promise<void>((_, reject) => 
-        setTimeout(() => reject(new Error('Telnyx client ready timeout')), 10000)
+        setTimeout(() => reject(new Error('Telnyx client ready timeout after 30 seconds. Check SIP credentials.')), 30000)
       );
       
       await Promise.race([this.readyPromise, timeout]);
 
-      console.log('Telnyx WebRTC client connected and ready');
+      console.log('✓ Telnyx WebRTC client connected and ready');
       return this;
     } catch (err) {
       console.error('Failed to initialize Telnyx client:', err);
+      this.isReady = false;
       throw err;
     }
   }
@@ -157,7 +169,7 @@ class TelnyxService {
 
     // Client ready
     this.client.on('telnyx.ready', () => {
-      console.log('Telnyx client ready for calls');
+      console.log('✓ EVENT: telnyx.ready - Client ready for calls');
       this.isReady = true;
       if (this.readyResolve) {
         this.readyResolve();
@@ -166,13 +178,26 @@ class TelnyxService {
 
     // Client error
     this.client.on('telnyx.error', (error: any) => {
-      console.error('Telnyx client error:', error);
+      console.error('✗ EVENT: telnyx.error -', error);
+      if (error.message) {
+        console.error('Error message:', error.message);
+      }
     });
 
     // Socket close
-    this.client.on('telnyx.socket.close', () => {
-      console.log('Telnyx socket closed');
+    this.client.on('telnyx.socket.close', (event: any) => {
+      console.log('⚠ EVENT: telnyx.socket.close', event);
       this.isReady = false;
+    });
+
+    // Socket error
+    this.client.on('telnyx.socket.error', (event: any) => {
+      console.error('✗ EVENT: telnyx.socket.error', event);
+    });
+
+    // Socket open
+    this.client.on('telnyx.socket.open', () => {
+      console.log('✓ EVENT: telnyx.socket.open - WebSocket connected');
     });
 
     // Handle notifications (call updates)
@@ -192,8 +217,12 @@ class TelnyxService {
    * @param fromNumber - The caller ID number (optional, uses default)
    */
   async connect(phoneNumber: string, fromNumber?: string): Promise<ICall> {
-    if (!this.client) throw new Error('Telnyx client not initialized');
-    if (!this.isReady) throw new Error('Telnyx client not ready');
+    if (!this.client) {
+      throw new Error('Telnyx client not initialized. Call initialize() first.');
+    }
+    if (!this.isReady) {
+      throw new Error('Telnyx client not ready. The WebRTC connection may still be establishing. Please wait a moment and try again.');
+    }
 
     this.localDisconnect = false;
     this.callStartTime = null;
@@ -257,16 +286,19 @@ class TelnyxService {
       case 'hangup':
       case 'destroy':
       case 'purge':
-        console.log('Telnyx: Emitting WRAP_UP for state:', state);
+        console.log('🔴 Telnyx: Call ended with state:', state);
+        console.log('🔴 Local disconnect:', this.localDisconnect);
         const endReason = this.localDisconnect
           ? CallEndReason.AGENT_HANGUP
           : CallEndReason.CUSTOMER_HANGUP;
         
+        console.log('🔴 Emitting WRAP_UP with reason:', endReason);
         this.emitStatus(CallState.WRAP_UP, {
           endReason,
           disconnectedBy: this.localDisconnect ? 'local' : 'remote',
           duration: this.getCallDuration()
         });
+        console.log('🔴 Cleaning up call state');
         this.cleanup();
         break;
       case 'held':
@@ -349,10 +381,26 @@ class TelnyxService {
    * Disconnect the current call
    */
   disconnect() {
+    console.log('🔴 Telnyx: Disconnect requested');
     this.localDisconnect = true;
 
     if (this.currentCall) {
-      this.currentCall.hangup();
+      console.log('🔴 Telnyx: Hanging up call:', this.currentCallId);
+      try {
+        this.currentCall.hangup();
+        console.log('✓ Telnyx: Hangup command sent');
+      } catch (err) {
+        console.error('Error hanging up call:', err);
+        // Force cleanup even if hangup fails
+        this.emitStatus(CallState.WRAP_UP, {
+          endReason: CallEndReason.AGENT_HANGUP,
+          disconnectedBy: 'local',
+          duration: this.getCallDuration()
+        });
+        this.cleanup();
+      }
+    } else {
+      console.warn('🔴 Telnyx: No active call to disconnect');
     }
   }
 

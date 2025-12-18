@@ -3,8 +3,9 @@ import { GraduationCap, CheckCircle, XCircle, AlertCircle, Save, Loader2, Key } 
 import { backendAPI } from '../services/BackendAPI';
 
 const Training: React.FC = () => {
+  const [provider, setProvider] = useState<'openai' | 'elevenlabs'>('elevenlabs');
   const [apiKey, setApiKey] = useState('');
-  const [currentKey, setCurrentKey] = useState('');
+  const [currentKeys, setCurrentKeys] = useState({ openai: '', elevenlabs: '' });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
@@ -19,23 +20,34 @@ const Training: React.FC = () => {
     setLoading(true);
     try {
       const response = await backendAPI.request('/api/training/providers/status');
-      if (response && response.openai) {
-        setCurrentKey('Configured (hidden for security)');
-        setTestStatus('success');
-      } else {
-        setCurrentKey('Not configured');
+      if (response) {
+        setCurrentKeys({
+          openai: response.openai ? 'Configured (hidden for security)' : 'Not configured',
+          elevenlabs: response.elevenlabs ? 'Configured (hidden for security)' : 'Not configured'
+        });
+        
+        // Set test status to success if current provider is configured
+        if ((provider === 'openai' && response.openai) || (provider === 'elevenlabs' && response.elevenlabs)) {
+          setTestStatus('success');
+        }
       }
     } catch (error) {
       console.error('Failed to load API key status:', error);
-      setCurrentKey('Unable to check status');
+      setCurrentKeys({ openai: 'Unable to check status', elevenlabs: 'Unable to check status' });
     } finally {
       setLoading(false);
     }
   };
 
   const testConnection = async () => {
-    if (!apiKey || !apiKey.startsWith('sk-')) {
-      setMessage('Please enter a valid OpenAI API key (starts with sk-)');
+    if (!apiKey) {
+      setMessage('Please enter an API key');
+      setTestStatus('error');
+      return;
+    }
+
+    if (provider === 'openai' && !apiKey.startsWith('sk-')) {
+      setMessage('OpenAI API key must start with sk-');
       setTestStatus('error');
       return;
     }
@@ -46,7 +58,7 @@ const Training: React.FC = () => {
     try {
       const response = await backendAPI.request('/api/training/test-key', {
         method: 'POST',
-        body: JSON.stringify({ apiKey })
+        body: JSON.stringify({ apiKey, provider })
       });
 
       if (response && response.success) {
@@ -63,8 +75,14 @@ const Training: React.FC = () => {
   };
 
   const saveApiKey = async () => {
-    if (!apiKey || !apiKey.startsWith('sk-')) {
-      setMessage('Please enter a valid OpenAI API key');
+    if (!apiKey) {
+      setMessage('Please enter an API key');
+      setTestStatus('error');
+      return;
+    }
+
+    if (provider === 'openai' && !apiKey.startsWith('sk-')) {
+      setMessage('OpenAI API key must start with sk-');
       setTestStatus('error');
       return;
     }
@@ -75,13 +93,16 @@ const Training: React.FC = () => {
     try {
       const response = await backendAPI.request('/api/training/save-key', {
         method: 'POST',
-        body: JSON.stringify({ apiKey })
+        body: JSON.stringify({ apiKey, provider })
       });
 
       if (response && response.success) {
         setMessage('API key saved successfully!');
         setTestStatus('success');
-        setCurrentKey('Configured (hidden for security)');
+        setCurrentKeys(prev => ({
+          ...prev,
+          [provider]: 'Configured (hidden for security)'
+        }));
         setApiKey('');
         setTimeout(() => setMessage(''), 3000);
       } else {
@@ -106,7 +127,7 @@ const Training: React.FC = () => {
           </div>
           <div>
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white">AI Training Setup</h1>
-            <p className="text-gray-500 dark:text-gray-400">Configure OpenAI API for AI-powered training</p>
+            <p className="text-gray-500 dark:text-gray-400">Configure AI provider for realistic training sessions</p>
           </div>
         </div>
       </div>
@@ -117,31 +138,87 @@ const Training: React.FC = () => {
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Current Configuration</h3>
           
-          <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
-            <div className="flex items-center gap-3">
-              <Key size={24} className="text-gray-500" />
-              <div>
-                <p className="font-medium text-gray-900 dark:text-white">OpenAI API Key</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400">{loading ? 'Checking...' : currentKey}</p>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+              <div className="flex items-center gap-3">
+                <Key size={24} className="text-gray-500" />
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">ElevenLabs API Key</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{loading ? 'Checking...' : currentKeys.elevenlabs}</p>
+                </div>
               </div>
+              {currentKeys.elevenlabs.includes('Configured') && (
+                <CheckCircle size={24} className="text-green-500" />
+              )}
             </div>
-            {testStatus === 'success' && !loading && (
-              <CheckCircle size={24} className="text-green-500" />
-            )}
-            {testStatus === 'error' && !loading && (
-              <XCircle size={24} className="text-red-500" />
-            )}
+            
+            <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+              <div className="flex items-center gap-3">
+                <Key size={24} className="text-gray-500" />
+                <div>
+                  <p className="font-medium text-gray-900 dark:text-white">OpenAI API Key</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{loading ? 'Checking...' : currentKeys.openai}</p>
+                </div>
+              </div>
+              {currentKeys.openai.includes('Configured') && (
+                <CheckCircle size={24} className="text-green-500" />
+              )}
+            </div>
           </div>
         </div>
 
         {/* API Key Configuration Card */}
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-          <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Configure OpenAI API Key</h3>
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Configure API Keys</h3>
           
           <div className="space-y-4">
+            {/* Provider Selection */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                OpenAI API Key
+                Select Provider
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => {
+                    setProvider('elevenlabs');
+                    setApiKey('');
+                    setTestStatus('idle');
+                    setMessage('');
+                  }}
+                  className={`p-4 rounded-xl border-2 transition ${
+                    provider === 'elevenlabs'
+                      ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
+                      : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
+                  }`}
+                >
+                  <div className="font-medium text-gray-900 dark:text-white">ElevenLabs</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Recommended - Best voice quality</div>
+                </button>
+                
+                <button
+                  onClick={() => {
+                    setProvider('openai');
+                    setApiKey('');
+                    setTestStatus('idle');
+                    setMessage('');
+                  }}
+                  className={`p-4 rounded-xl border-2 transition ${
+                    provider === 'openai'
+                      ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
+                      : 'border-gray-300 dark:border-gray-600 hover:border-gray-400'
+                  }`}
+                >
+                  <div className="font-medium text-gray-900 dark:text-white">OpenAI</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">For AI conversation logic</div>
+                </button>
+              </div>
+            </div>
+
+            
+            {/* API Key Input */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {provider === 'elevenlabs' ? 'ElevenLabs API Key' : 'OpenAI API Key'}
               </label>
               <input
                 type="password"
@@ -151,11 +228,15 @@ const Training: React.FC = () => {
                   setTestStatus('idle');
                   setMessage('');
                 }}
-                placeholder="sk-proj-..."
+                placeholder={provider === 'elevenlabs' ? 'Enter your ElevenLabs API key...' : 'sk-proj-...'}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
               <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:text-purple-700 underline">OpenAI Platform</a>
+                {provider === 'elevenlabs' ? (
+                  <>Get your API key from <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:text-purple-700 underline">ElevenLabs Dashboard</a></>
+                ) : (
+                  <>Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:text-purple-700 underline">OpenAI Platform</a></>
+                )}
               </p>
             </div>
 
@@ -219,6 +300,8 @@ const Training: React.FC = () => {
         <div className="bg-gradient-to-br from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 rounded-2xl shadow-sm border border-purple-200 dark:border-purple-700 p-6">
           <h3 className="text-lg font-bold text-purple-900 dark:text-purple-100 mb-3">About AI Training</h3>
           <div className="space-y-2 text-sm text-purple-700 dark:text-purple-300">
+            <p><strong>ElevenLabs:</strong> Industry-leading text-to-speech with the most natural, realistic voices. Perfect for training sessions. (~$0.30 per 1K characters)</p>
+            <p><strong>OpenAI:</strong> Powers the conversational AI logic and understanding. Required for realistic prospect responses.</p>
             <p>
               This feature uses OpenAI's GPT-4 Realtime API to provide AI-powered voice training for your sales team.
             </p>

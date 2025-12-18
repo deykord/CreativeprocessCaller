@@ -5,14 +5,19 @@ const path = require('path');
 // Check provider connection status based on env variables
 exports.getProviderStatus = async (req, res) => {
   try {
-    const hasKey = !!process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.startsWith('sk-');
-    console.log('OpenAI API Key check:', { 
-      hasKey, 
-      keyPrefix: process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.substring(0, 10) + '...' : 'not set' 
+    const hasOpenAIKey = !!process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.startsWith('sk-');
+    const hasElevenLabsKey = !!process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_API_KEY.length > 0;
+    
+    console.log('API Key check:', { 
+      openai: hasOpenAIKey, 
+      elevenlabs: hasElevenLabsKey,
+      openaiPrefix: process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.substring(0, 10) + '...' : 'not set',
+      elevenLabsPrefix: process.env.ELEVENLABS_API_KEY ? process.env.ELEVENLABS_API_KEY.substring(0, 10) + '...' : 'not set'
     });
     
     const statuses = {
-      openai: hasKey
+      openai: hasOpenAIKey,
+      elevenlabs: hasElevenLabsKey
     };
     
     res.json(statuses);
@@ -25,10 +30,10 @@ exports.getProviderStatus = async (req, res) => {
 // Test API key with timeout
 exports.testApiKey = async (req, res) => {
   try {
-    const { apiKey } = req.body;
+    const { apiKey, provider } = req.body;
     
-    if (!apiKey || !apiKey.startsWith('sk-')) {
-      return res.status(400).json({ success: false, error: 'Invalid API key format' });
+    if (!apiKey) {
+      return res.status(400).json({ success: false, error: 'API key is required' });
     }
 
     // Test the key with a timeout
@@ -36,20 +41,39 @@ exports.testApiKey = async (req, res) => {
     const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
     try {
-      const response = await fetch('https://api.openai.com/v1/models', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        signal: controller.signal
-      });
+      let response;
+      
+      if (provider === 'elevenlabs') {
+        // Test ElevenLabs API key
+        response = await fetch('https://api.elevenlabs.io/v1/user', {
+          method: 'GET',
+          headers: {
+            'xi-api-key': apiKey
+          },
+          signal: controller.signal
+        });
+      } else {
+        // Test OpenAI API key (default)
+        if (!apiKey.startsWith('sk-')) {
+          return res.status(400).json({ success: false, error: 'Invalid OpenAI API key format (must start with sk-)' });
+        }
+        
+        response = await fetch('https://api.openai.com/v1/models', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          signal: controller.signal
+        });
+      }
 
       clearTimeout(timeout);
 
       if (response.ok) {
         return res.json({ success: true, message: 'API key is valid' });
       } else {
+        const errorText = await response.text();
         return res.status(400).json({ 
           success: false, 
           error: `Invalid API key: ${response.status} ${response.statusText}` 
@@ -58,7 +82,7 @@ exports.testApiKey = async (req, res) => {
     } catch (fetchError) {
       clearTimeout(timeout);
       if (fetchError.name === 'AbortError') {
-        return res.status(408).json({ success: false, error: 'Request timeout - OpenAI API took too long to respond' });
+        return res.status(408).json({ success: false, error: 'Request timeout - API took too long to respond' });
       }
       throw fetchError;
     }
@@ -74,10 +98,10 @@ exports.testApiKey = async (req, res) => {
 // Save API key to .env file
 exports.saveApiKey = async (req, res) => {
   try {
-    const { apiKey } = req.body;
+    const { apiKey, provider } = req.body;
     
-    if (!apiKey || !apiKey.startsWith('sk-')) {
-      return res.status(400).json({ success: false, error: 'Invalid API key format' });
+    if (!apiKey) {
+      return res.status(400).json({ success: false, error: 'API key is required' });
     }
 
     const envPath = path.join(__dirname, '../../.env');
@@ -90,26 +114,37 @@ exports.saveApiKey = async (req, res) => {
       envContent = '';
     }
 
-    // Update or add OPENAI_API_KEY
+    // Determine which env variable to update
+    const envVar = provider === 'elevenlabs' ? 'ELEVENLABS_API_KEY' : 'OPENAI_API_KEY';
+    
+    // Update or add the API key
     const lines = envContent.split('\n');
     let updated = false;
     
     for (let i = 0; i < lines.length; i++) {
-      if (lines[i].startsWith('OPENAI_API_KEY=')) {
-        lines[i] = `OPENAI_API_KEY=${apiKey}`;
+      if (lines[i].startsWith(`${envVar}=`)) {
+        lines[i] = `${envVar}=${apiKey}`;
         updated = true;
         break;
       }
     }
     
     if (!updated) {
-      lines.push(`OPENAI_API_KEY=${apiKey}`);
+      lines.push(`${envVar}=${apiKey}`);
     }
     
     await fs.writeFile(envPath, lines.join('\n'), 'utf8');
     
     // Update process.env
-    process.env.OPENAI_API_KEY = apiKey;
+    process.env[envVar] = apiKey;
+    
+    // Reload config
+    const config = require('../config/config');
+    if (provider === 'elevenlabs') {
+      config.elevenlabs.apiKey = apiKey;
+    } else {
+      config.openai.apiKey = apiKey;
+    }
     
     res.json({ success: true, message: 'API key saved successfully' });
   } catch (error) {

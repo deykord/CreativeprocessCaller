@@ -389,15 +389,16 @@ const ProspectRowWithMenu = React.memo(({ prospect, onCall, onDelete, onUpdate, 
 });
 
 export const ProspectTable: React.FC<Props> = React.memo(({ prospects, onCall, onUpload, onDelete, onUpdate }) => {
+
   const [selectedProspectIds, setSelectedProspectIds] = React.useState<Set<string>>(new Set());
   const [showCallHistoryModal, setShowCallHistoryModal] = React.useState<{prospectId: string; prospectName: string} | null>(null);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = React.useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   // Pagination state
   const [currentPage, setCurrentPage] = React.useState(1);
   const ITEMS_PER_PAGE = 100;
-  
+
   // Column filters state
   const [filters, setFilters] = React.useState<{
     name: string;
@@ -414,16 +415,53 @@ export const ProspectTable: React.FC<Props> = React.memo(({ prospects, onCall, o
   });
   const [showFilters, setShowFilters] = React.useState(false);
 
-  // All available statuses for filtering
-  const allStatuses = ['New', 'Callback', 'Follow Up Required', 'Busy Later', 'Contacted', 'Qualified', 'Lost', 'Do Not Call'];
-  
+  // All possible call dispositions (outcomes)
+  const allDispositions = [
+    'Connected',
+    'Voicemail',
+    'Busy',
+    'No Answer',
+    'Meeting Set',
+    'Not Interested',
+    'Callback',
+    'Wrong Number',
+  ];
+
+  // Status filter: all call dispositions
+  const allStatuses = allDispositions;
+
+  // Build a map of prospectId -> latest call outcome (disposition)
+  const latestDispositionMap = React.useMemo(() => {
+    const map: Record<string, string | undefined> = {};
+    for (const p of prospects) {
+      if (Array.isArray(p.callHistory) && p.callHistory.length > 0) {
+        // Sort by startedAt DESC, get the latest
+        const sorted = [...p.callHistory].sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+        map[p.id] = sorted[0].outcome;
+      }
+    }
+    return map;
+  }, [prospects]);
+
+  // Compose a new list of prospects with dynamic status (latest disposition if present)
+  const dynamicProspects = React.useMemo(() => {
+    return prospects.map(p => {
+      const latestDisposition = latestDispositionMap[p.id];
+      return {
+        ...p,
+        status: latestDisposition || p.status,
+        _originalStatus: p.status, // for editing
+      };
+    });
+  }, [prospects, latestDispositionMap]);
+
   const uniqueTimezones = React.useMemo(() => 
     [...new Set(prospects.map(p => p.timezone))].filter(Boolean).sort(),
   [prospects]);
 
-  // Apply filters to prospects
+  // Apply filters to prospects (use dynamic status)
   const filteredProspects = React.useMemo(() => {
-    return prospects.filter(p => {
+    return dynamicProspects.filter(p => {
       const fullName = `${p.firstName} ${p.lastName}`.toLowerCase();
       if (filters.name && !fullName.includes(filters.name.toLowerCase())) return false;
       if (filters.phone && !p.phone.includes(filters.phone)) return false;
@@ -432,14 +470,14 @@ export const ProspectTable: React.FC<Props> = React.memo(({ prospects, onCall, o
       if (filters.timezone && p.timezone !== filters.timezone) return false;
       return true;
     });
-  }, [prospects, filters]);
+  }, [dynamicProspects, filters]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredProspects.length / ITEMS_PER_PAGE);
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const endIndex = startIndex + ITEMS_PER_PAGE;
   const paginatedProspects = filteredProspects.slice(startIndex, endIndex);
-  
+
   // Reset to page 1 when filters change
   React.useEffect(() => {
     setCurrentPage(1);
@@ -585,8 +623,20 @@ export const ProspectTable: React.FC<Props> = React.memo(({ prospects, onCall, o
                 onChange={e => setFilters(f => ({ ...f, status: e.target.value }))}
                 className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
               >
-                <option value="">All Statuses</option>
-                {allStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+                <option value="">All (Lead Statuses & Dispositions)</option>
+                <optgroup label="Lead Statuses">
+                  <option value="New">New</option>
+                  <option value="Callback">Callback</option>
+                  <option value="Follow Up Required">Follow Up Required</option>
+                  <option value="Busy Later">Busy Later</option>
+                  <option value="Contacted">Contacted</option>
+                  <option value="Qualified">Qualified</option>
+                  <option value="Lost">Lost</option>
+                  <option value="Do Not Call">Do Not Call</option>
+                </optgroup>
+                <optgroup label="Call Dispositions">
+                  {allStatuses.map(s => <option key={`disp-${s}`} value={s}>{s}</option>)}
+                </optgroup>
               </select>
             </div>
             <div>

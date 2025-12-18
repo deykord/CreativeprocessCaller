@@ -90,7 +90,7 @@ const Training: React.FC = () => {
   
   // Voice and history state
   const [availableVoices, setAvailableVoices] = useState<VoiceOption[]>([]);
-  const [selectedVoice, setSelectedVoice] = useState<string>('alloy');
+  const [selectedVoice, setSelectedVoice] = useState<string>('pNInz6obpgDQGcFmaJgB'); // Adam voice (ElevenLabs)
   const [trainingHistory, setTrainingHistory] = useState<TrainingSession[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   
@@ -127,14 +127,16 @@ const Training: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to load voices:', error);
-      // Fallback voices
+      // Fallback ElevenLabs voices
       setAvailableVoices([
-        { id: 'alloy', name: 'Alloy', description: 'Neutral, balanced', gender: 'neutral' },
-        { id: 'echo', name: 'Echo', description: 'Warm, male', gender: 'male' },
-        { id: 'fable', name: 'Fable', description: 'British, male', gender: 'male' },
-        { id: 'onyx', name: 'Onyx', description: 'Deep, authoritative', gender: 'male' },
-        { id: 'nova', name: 'Nova', description: 'Friendly, female', gender: 'female' },
-        { id: 'shimmer', name: 'Shimmer', description: 'Soft, female', gender: 'female' }
+        { id: 'pNInz6obpgDQGcFmaJgB', name: 'Adam', description: 'Deep, authoritative male', gender: 'male' },
+        { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella', description: 'Soft, warm female', gender: 'female' },
+        { id: 'ErXwobaYiN019PkySvjV', name: 'Antoni', description: 'Well-rounded male', gender: 'male' },
+        { id: 'MF3mGyEYCl7XYWbV9V6O', name: 'Elli', description: 'Young, energetic female', gender: 'female' },
+        { id: 'TxGEqnHWrfWFTfGW9XjX', name: 'Josh', description: 'Professional male', gender: 'male' },
+        { id: 'VR6AewLTigWG4xSOukaG', name: 'Arnold', description: 'Crisp, confident male', gender: 'male' },
+        { id: 'ThT5KcBeYPX3keUQqHPh', name: 'Dorothy', description: 'Pleasant female', gender: 'female' },
+        { id: 'pqHfZKP75CvOlQylNhV4', name: 'Bill', description: 'Trustworthy male', gender: 'male' }
       ]);
     }
   };

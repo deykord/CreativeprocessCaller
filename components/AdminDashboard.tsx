@@ -113,12 +113,17 @@ const AdminDashboard: React.FC = () => {
         scenariosRes.json()
       ]);
 
+      console.log('📊 Admin data fetched:', {
+        costs: costsData,
+        agentsCount: agentsData.agents?.length || 0,
+        agents: agentsData.agents,
+        dailyUsage: dailyData.usage?.length || 0,
+        scenarios: scenariosData.scenarios?.length || 0
+      });
+
       setCosts(costsData);
-      // Filter out the current admin user from agent stats
-      const filteredAgents = (agentsData.agents || []).filter((agent: AgentStats) => 
-        agent.userId !== currentUser?.id
-      );
-      setAgentStats(filteredAgents);
+      // Include ALL users including admin
+      setAgentStats(agentsData.agents || []);
       setDailyUsage(dailyData.usage || []);
       setScenarioStats(scenariosData.scenarios || []);
     } catch (err: any) {
@@ -169,6 +174,12 @@ const AdminDashboard: React.FC = () => {
         <p className="text-gray-500 dark:text-gray-400">{error}</p>
       </div>
     );
+  }
+
+  // Show message if no agent data
+  const hasNoData = agentStats.length === 0;
+  if (hasNoData) {
+    console.warn('⚠️ No agent data found. This could mean: 1) No training sessions, 2) No call logs, or 3) Query issue');
   }
 
   return (
@@ -268,8 +279,12 @@ const AdminDashboard: React.FC = () => {
             <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
               {agentStats.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-5 py-8 text-center text-gray-500 dark:text-gray-400">
-                    No agent training data available
+                  <td colSpan={7} className="px-5 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <Users className="w-12 h-12 text-gray-400 dark:text-gray-500" />
+                      <p className="text-gray-600 dark:text-gray-400 font-medium">No agent performance data yet</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-500">Data will appear after agents complete training sessions or make calls</p>
+                    </div>
                   </td>
                 </tr>
               ) : (

@@ -24,7 +24,8 @@ const optionalAuth = (req, res, next) => {
 };
 
 router.get('/', optionalAuth, controller.getCallHistory);
-router.post('/', authMiddleware, controller.logCall);  // Require auth to log calls
+// Allow optional auth for creating call logs so external systems can post without a token
+router.post('/', optionalAuth, controller.logCall);
 router.get('/stats', optionalAuth, controller.getStats);
 
 // Call log delete routes (admin only)
