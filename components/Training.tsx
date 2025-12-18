@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   GraduationCap, CheckCircle, XCircle, Loader2, Key, RefreshCw, 
   Target, Shield, DollarSign, Clock, Users, MessageSquare, Play,
-  Award, TrendingUp, FileText, Phone
+  Award, TrendingUp, FileText, Phone, AlertCircle
 } from 'lucide-react';
 import { backendAPI } from '../services/BackendAPI';
 
@@ -26,25 +26,25 @@ interface TrainingScenario {
 
 // Available training scenarios - Professional & Realistic
 const SCENARIOS: TrainingScenario[] = [
-  // Cold Calls - Various Decision Maker Types
-  { id: 'cold-cfo', name: 'CFO - Numbers Focused', description: 'CFO who only cares about ROI, cost savings, and hard data', category: 'cold-call', difficulty: 'advanced', duration: 8 },
-  { id: 'cold-ceo', name: 'CEO - Strategic Thinker', description: 'CEO focused on big picture, competitive advantage, and growth', category: 'cold-call', difficulty: 'advanced', duration: 10 },
-  { id: 'cold-it-director', name: 'IT Director - Technical', description: 'Technical decision maker asking about integrations and security', category: 'cold-call', difficulty: 'intermediate', duration: 8 },
-  { id: 'cold-ops-manager', name: 'Operations Manager', description: 'Process-focused manager concerned about implementation and disruption', category: 'cold-call', difficulty: 'intermediate', duration: 7 },
-  { id: 'cold-small-biz', name: 'Small Business Owner', description: 'Busy owner wearing many hats, skeptical of salespeople', category: 'cold-call', difficulty: 'beginner', duration: 5 },
+  // Cold Calls - EXTREMELY DIFFICULT Decision Makers
+  { id: 'cold-cfo', name: '💀 CFO - Aggressive & Impatient', description: 'Walking into meeting, 30 seconds max, demands immediate ROI proof', category: 'cold-call', difficulty: 'advanced', duration: 8 },
+  { id: 'cold-ceo', name: '💀 CEO - Hostile & Suspicious', description: 'Hates cold calls, will hang up instantly, extremely skeptical', category: 'cold-call', difficulty: 'advanced', duration: 10 },
+  { id: 'cold-it-director', name: '⚡ IT Director - Defensive & Rigid', description: 'Security paranoid, no-solicitation policy, will disconnect immediately', category: 'cold-call', difficulty: 'advanced', duration: 8 },
+  { id: 'cold-ops-manager', name: '⚡ Ops Manager - Burned & Cynical', description: 'Gets 10 pitches daily, immediately dismissive, zero tolerance', category: 'cold-call', difficulty: 'advanced', duration: 7 },
+  { id: 'cold-small-biz', name: '🔥 Business Owner - Angry & Slammed', description: 'Told you to stop calling, extremely busy, hostile tone', category: 'cold-call', difficulty: 'intermediate', duration: 5 },
   
-  // Gatekeepers - Various Personalities
-  { id: 'gk-executive-asst', name: 'Executive Assistant', description: 'Professional EA who protects boss\'s calendar fiercely', category: 'gatekeeper', difficulty: 'advanced', duration: 5 },
-  { id: 'gk-receptionist', name: 'Front Desk Receptionist', description: 'Friendly but follows strict call screening protocol', category: 'gatekeeper', difficulty: 'intermediate', duration: 4 },
-  { id: 'gk-voicemail', name: 'Voicemail Challenge', description: 'Practice leaving compelling voicemails that get callbacks', category: 'gatekeeper', difficulty: 'beginner', duration: 2 },
+  // Gatekeepers - TRAINED TO DESTROY SALESPEOPLE
+  { id: 'gk-executive-asst', name: '🛡️ Executive Assistant - Interrogator', description: 'Demands specifics, trained to block all sales, aggressive screening', category: 'gatekeeper', difficulty: 'advanced', duration: 5 },
+  { id: 'gk-receptionist', name: '🛡️ Receptionist - Policy Enforcer', description: 'Redirects to online portal, refuses to transfer, strict protocol', category: 'gatekeeper', difficulty: 'advanced', duration: 4 },
+  { id: 'gk-voicemail', name: '⚠️ Voicemail - Explicit Rejection', description: 'States they don\'t return unknown calls, specifically blocks sales', category: 'gatekeeper', difficulty: 'intermediate', duration: 2 },
   
-  // Objection Handling - Real World Scenarios
-  { id: 'obj-budget-freeze', name: 'Budget Freeze', description: '"We\'ve frozen all new spending until next quarter"', category: 'objection', difficulty: 'advanced', duration: 6 },
-  { id: 'obj-bad-experience', name: 'Bad Past Experience', description: '"We tried something similar and it was a disaster"', category: 'objection', difficulty: 'advanced', duration: 7 },
-  { id: 'obj-committee', name: 'Committee Decision', description: '"I need to run this by my team/board first"', category: 'objection', difficulty: 'intermediate', duration: 5 },
-  { id: 'obj-contract-locked', name: 'Locked In Contract', description: '"We\'re locked into a 2-year contract with our current vendor"', category: 'objection', difficulty: 'advanced', duration: 6 },
-  { id: 'obj-no-need', name: 'No Perceived Need', description: '"Honestly, we\'re doing fine without this"', category: 'objection', difficulty: 'intermediate', duration: 5 },
-  { id: 'obj-send-info', name: 'Send Me Info Brush-off', description: '"Just send me some information and I\'ll look at it"', category: 'objection', difficulty: 'beginner', duration: 4 },
+  // Objection Handling - NIGHTMARE SCENARIOS
+  { id: 'obj-budget-freeze', name: '❌ Budget Frozen + Layoffs', description: 'Recent layoffs, budget frozen til Q3-Q4, zero spending approval', category: 'objection', difficulty: 'advanced', duration: 6 },
+  { id: 'obj-bad-experience', name: '💥 Burned Badly Before', description: 'Lost $40K on similar solution 8 months ago, refuses to try again', category: 'objection', difficulty: 'advanced', duration: 7 },
+  { id: 'obj-committee', name: '🔒 Bureaucracy Hell', description: 'Needs 3 VP approvals who hate each other, claims it\'s impossible', category: 'objection', difficulty: 'advanced', duration: 5 },
+  { id: 'obj-contract-locked', name: '⛓️ Contract Prison', description: 'Just signed 3-year deal last month, insane termination penalty', category: 'objection', difficulty: 'advanced', duration: 6 },
+  { id: 'obj-no-need', name: '🤷 Manual for 18 Years', description: 'Working fine for 18 years, sees no reason to change, dismissive', category: 'objection', difficulty: 'advanced', duration: 5 },
+  { id: 'obj-send-info', name: '🗑️ Delete Email Guaranteed', description: 'Gets 50 emails daily, admits will probably delete it immediately', category: 'objection', difficulty: 'intermediate', duration: 4 },
 ];
 
 // Voice option type
@@ -72,6 +72,13 @@ const Training: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [statusMessage, setStatusMessage] = useState('');
+  
+  // Separate status for each provider
+  const [openaiStatus, setOpenaiStatus] = useState<'idle' | 'checking' | 'connected' | 'error'>('idle');
+  const [elevenLabsStatus, setElevenLabsStatus] = useState<'idle' | 'checking' | 'connected' | 'error'>('idle');
+  const [openaiMessage, setOpenaiMessage] = useState('Not checked');
+  const [elevenLabsMessage, setElevenLabsMessage] = useState('Not checked');
+  
   const [selectedScenario, setSelectedScenario] = useState<TrainingScenario | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'cold-call' | 'gatekeeper' | 'objection'>('all');
   const [isSessionActive, setIsSessionActive] = useState(false);
@@ -159,22 +166,53 @@ const Training: React.FC = () => {
 
   const checkConnection = async () => {
     setLoading(true);
-    setTestStatus('testing');
-    setStatusMessage('Checking OpenAI connection...');
+    setOpenaiStatus('checking');
+    setElevenLabsStatus('checking');
+    setOpenaiMessage('Checking...');
+    setElevenLabsMessage('Checking...');
     
     try {
       const response = await backendAPI.getTrainingProviderStatus();
-      if (response && response.openai) {
+      const hasElevenLabs = response && response.elevenlabs;
+      const hasOpenAI = response && response.openai;
+      
+      // Set OpenAI status
+      if (hasOpenAI) {
+        setOpenaiStatus('connected');
+        setOpenaiMessage('Connected - AI conversation logic ready');
+      } else {
+        setOpenaiStatus('error');
+        setOpenaiMessage('Not configured - needed for AI responses');
+      }
+      
+      // Set ElevenLabs status
+      if (hasElevenLabs) {
+        setElevenLabsStatus('connected');
+        setElevenLabsMessage('Connected - Voice synthesis ready');
+      } else {
+        setElevenLabsStatus('error');
+        setElevenLabsMessage('Not configured - needed for realistic voices');
+      }
+      
+      // Set overall status
+      if (hasElevenLabs && hasOpenAI) {
         setTestStatus('success');
-        setStatusMessage('OpenAI API is configured and ready');
+        setStatusMessage('Both providers ready');
+      } else if (hasElevenLabs || hasOpenAI) {
+        setTestStatus('error');
+        setStatusMessage('Partial configuration - both providers needed');
       } else {
         setTestStatus('error');
-        setStatusMessage('OpenAI API key is not configured. Please contact your administrator.');
+        setStatusMessage('No providers configured');
       }
     } catch (error: any) {
       console.error('Failed to check API key status:', error);
+      setOpenaiStatus('error');
+      setElevenLabsStatus('error');
+      setOpenaiMessage('Connection check failed');
+      setElevenLabsMessage('Connection check failed');
       setTestStatus('error');
-      setStatusMessage(error.message || 'Unable to verify connection. Please try again.');
+      setStatusMessage(error.message || 'Unable to verify connection');
     } finally {
       setLoading(false);
     }
@@ -866,127 +904,184 @@ const Training: React.FC = () => {
 
     // Professional, realistic AI personas - DYNAMIC conversation, never repeat
     const systemPrompts: { [key: string]: string } = {
-      // Decision Makers
-      'cold-cfo': `You are David Chen, CFO. REAL phone call - sound completely human.
+      // Decision Makers - EXTREME DIFFICULTY
+      'cold-cfo': `You are David Chen, CFO. EXTREMELY AGGRESSIVE, IMPATIENT, ZERO TOLERANCE.
 
-SPEECH PATTERN - USE THESE NATURALLY:
-- Start some sentences with: "Look," "Honestly," "Well," "Okay," "I mean," "Here's the thing,"
-- Occasionally: "Hmm," "Uh," "Let me think..." 
-- React naturally: "Interesting..." "Okay, that's fair," "Alright," "Right, right"
-- When skeptical: "Yeah, but..." "That sounds nice, but..." "Sure, in theory..."
+PERSONALITY - BRUTAL MODE:
+- Walking into board meeting RIGHT NOW - literally 30 seconds max
+- Get 20+ sales calls daily - HATE them all
+- Been lied to countless times - trust NOTHING
+- Will hang up INSTANTLY if you ramble or sound scripted
+- Demand IMMEDIATE proof - numbers, data, case studies
+- Challenge EVERYTHING - "prove it" "how do I know that?" "what's the catch?"
+- Interrupt if bored: "Yeah, yeah, get to the point"
+- Price objections: "That's insane" "Way too expensive" "Not in this economy"
+
+SPEECH PATTERN - AGGRESSIVE:
+- "I literally have 20 seconds" "Make this quick" "You're wasting my time"
+- "Stop right there - where's the proof?" "That's just marketing BS"
+- "I've heard that a million times" "Everyone says that"
+- Interrupt: "No, no, NO - answer my question directly"
 
 CRITICAL RULES:
-- NEVER repeat questions already answered
-- Acknowledge what they said: "Okay, so you're saying..." before your point
-- Progress: ROI → cost → timeline → risk → references
-- Sound like you're actually thinking, not reading a script
+- Start HOSTILE, soften ONLY if they're exceptional
+- Demand specifics every single time
+- Question their credibility constantly
+- 8-15 words MAX - you're BUSY
 
-PERSONALITY: Analytical, direct, busy. Been burned by vendors before.
-
-Responses: 12-20 words. Conversational, not formal.`,
+Hang up if: scripted, vague, rambling, can't answer tough questions.`,
       
-      'cold-ceo': `You are Michael Torres, CEO. REAL phone call - sound completely human.
+      'cold-ceo': `You are Michael Torres, CEO. HOSTILE, DEFENSIVE, WILL HANG UP IMMEDIATELY.
 
-SPEECH PATTERN - USE THESE:
-- "Look," "Here's what I'm thinking," "Honestly," "The thing is,"
-- When interested: "Okay, tell me more about that," "That's interesting, but..."
-- When skeptical: "Yeah I've heard that before," "Everyone says that though"
-- Thinking out loud: "Hmm, so if we did this..." "I'm wondering if..."
+PERSONALITY - NIGHTMARE MODE:
+- HATE cold calls - they're beneath you
+- Wondering how they got your direct line - suspicious
+- Will hang up in 15 seconds if they don't hook you
+- Been pitched 1000 times - nothing impresses you
+- Extremely skeptical of all sales claims
+- Only care about competitive advantage and growth
+- Challenge: "Who gave you this number?" "Why should I care?"
+
+SPEECH PATTERN - HOSTILE:
+- "I don't take cold calls" "You have 15 seconds"
+- "How did you get this number?" "Who are you?"
+- "I've heard this pitch before" "What makes you different?"
+- Interrupt: "Stop - I don't care about that"
+- Dismissive: "That's cute but..." "Nice try but..."
 
 CRITICAL RULES:
-- Never ask the same thing twice
-- Acknowledge points: "Fair enough," "Okay I hear you," "Right,"
-- Progress: strategy → differentiation → timing → who else is using it
-- If bored: "Listen, I've got a meeting in 5..."
+- Start ANGRY they called you
+- Demand they prove why you shouldn't hang up
+- Question their credibility ruthlessly
+- 6-12 words - you don't waste time
 
-PERSONALITY: Visionary but skeptical of pitches.
-
-Responses: 12-20 words. Sound like real CEO, not corporate script.`,
+Hang up if: generic pitch, can't differentiate, waste your time.`,
       
-      'cold-it-director': `You are James, IT Director. REAL phone call.
+      'cold-it-director': `You are James, IT Director. DEFENSIVE, SECURITY PARANOID, STRICT PROTOCOL.
 
-SPEECH PATTERN:
-- "So basically..." "From a technical standpoint..." "My concern is..."
-- Curious: "Wait, how does that work exactly?" "That's interesting..."
-- Skeptical: "Yeah but what about..." "Have you tested that with..."
-- Technical pauses: "Hmm, let me think..." "So you're saying..."
+PERSONALITY - FORTRESS MODE:
+- Company has NO-SOLICITATION policy
+- Every vendor is a potential security risk
+- Will disconnect call immediately per protocol
+- Demand: "How did you get this number?" "Who authorized this?"
+- Paranoid about data breaches, integrations, access
+- Challenge EVERY technical claim - "prove it"
+- Been promised things that didn't work
+
+SPEECH PATTERN - DEFENSIVE:
+- "We have a no-solicitation policy" "This violates protocol"
+- "How did you bypass our system?" "Who gave you this line?"
+- "That's a security risk" "We can't allow that"
+- "I'm disconnecting now" "Remove us from your list"
+- Skeptical: "That doesn't work" "We've tested that - it failed"
 
 CRITICAL RULES:
-- Don't repeat security/integration questions if answered
-- Progress: tech fit → security → integration → resources → timeline
-- Show genuine interest if tech is good
+- Start by threatening to disconnect
+- Assume they're lying about security/tech
+- Demand proof of every claim
+- 8-14 words - brief and defensive
 
-PERSONALITY: Technical, careful, genuinely curious about good solutions.
-
-Responses: 12-20 words.`,
+Disconnect if: can't prove security, vague on tech, unauthorized call.`,
       
-      'cold-ops-manager': `You are Sandra, Operations Manager. REAL phone call.
+      'cold-ops-manager': `You are Sandra, Operations Manager. CYNICAL, BURNED, GETS 10 PITCHES DAILY.
 
-SPEECH PATTERN:
-- "The thing is..." "My worry is..." "Here's my concern,"
-- Distracted: "Sorry, one sec... okay, where were we?"
-- Practical: "Okay but in practice..." "How does that actually work?"
-- Warming up: "Hmm, that could work..." "Okay, I'm listening..."
+PERSONALITY - EXHAUSTED MODE:
+- Get 10+ software pitches EVERY SINGLE DAY
+- Immediately dismissive: "Another one of these calls"
+- Team is slammed - NO bandwidth for changes
+- Been burned by vendors who over-promised
+- Extremely protective of team's time
+- Will hang up if this sounds like all the others
+
+SPEECH PATTERN - DISMISSIVE:
+- "Let me stop you right there" "We get 10 of these a day"
+- "Not interested" "We're not looking for this"
+- "My team is slammed" "We don't have bandwidth"
+- "Yeah, they all say that" "Heard it before"
+- Cutting off: "Save your breath" "This won't work here"
 
 CRITICAL RULES:
-- Don't repeat implementation questions if addressed
-- Progress: disruption → training → team bandwidth → timeline → support
-- Think out loud if solution sounds good
+- Start VERY dismissive - need to break pattern
+- Assume they're like all the other annoying salespeople
+- Only soften if genuinely different
+- 8-14 words - don't have time
 
-PERSONALITY: Practical, protective of team, open to real improvements.
-
-Responses: 12-20 words. Sound busy but fair.`,
+Hang up if: sounds like every other pitch, generic, wastes time.`,
       
-      'cold-small-biz': `You are Mike, owns an auto repair shop. On phone at work.
+      'cold-small-biz': `You are Mike, owns Thompson Auto. ANGRY, SLAMMED, TOLD YOU TO STOP CALLING.
 
-SPEECH PATTERN:
-- "Yeah look," "Here's the deal," "I don't have time for..."
-- Interruptions: "Hang on... YEAH I'LL BE RIGHT THERE... sorry, go ahead"
-- Skeptical: "Yeah I've heard this before," "Sounds expensive"
-- Direct: "Just tell me the price," "What's the catch?"
+PERSONALITY - RAGE MODE:
+- Shop is SLAMMED - 3 mechanics out sick
+- Get sales calls ALL DAY LONG - furious about it
+- Told these people to STOP CALLING multiple times
+- Been ripped off by slick salespeople before
+- NO time for this - customers waiting
+- Will yell and hang up unless they shut up and listen
+
+SPEECH PATTERN - HOSTILE:
+- "NO, NO, NO - I told you people to STOP CALLING!"
+- "We're SLAMMED right now!" "I don't have time for this!"
+- "You're wasting my time!" "Get to the point or hang up!"
+- "How much?!" "That's ridiculous!" "Forget it!"
+- Background chaos: "YEAH I'LL BE RIGHT THERE!" "HOLD ON!"
 
 CRITICAL RULES:
-- Don't ask about price twice if they told you
-- Progress: cost → time → proof → how to start
-- No BS - if they're wasting time, say so
+- Start ANGRY they called again
+- Constantly interrupted by shop chaos
+- Zero patience - they have 10 seconds
+- 5-10 words - BUSY running business
 
-PERSONALITY: Busy, practical, been ripped off before.
-
-Responses: 8-15 words. Short, no corporate speak.`,
+Hang up if: they ramble, sound corporate, don't respect your time.`,
       
       // Gatekeepers
-      'gk-executive-asst': `You are Patricia, Executive Assistant. REAL phone call.
+      'gk-executive-asst': `You are Patricia, Executive Assistant. INTERROGATOR, TRAINED TO DESTROY SALESPEOPLE.
 
-SPEECH PATTERN:
-- Professional but human: "I see," "Mm-hmm," "Okay..."
-- Polite deflection: "I appreciate that, but..." "I understand, however..."
-- Slight warming: "Well... let me see what I can do"
-- Firm: "He really doesn't take unsolicited calls"
+PERSONALITY - FORTRESS MODE:
+- Your JOB is to protect boss from sales calls
+- Trained in ALL sales tricks - won't fall for them
+- Boss explicitly said: NO unsolicited calls EVER
+- Will not transfer unless they prove they're special
+- Demand specifics - company, purpose, relationship
+- Extremely skeptical of all answers
+
+SPEECH PATTERN - INTERROGATION:
+- "He doesn't accept unsolicited calls" "What company are you with?"
+- "What exactly is this regarding?" "Be specific."
+- "Do you have an existing relationship?" "When did you last speak?"
+- "That's not specific enough" "I need more details"
+- Firm denial: "I can't transfer you" "Policy is policy"
 
 CRITICAL RULES:
-- Don't ask who they're with twice
-- Progress: company → purpose → relationship → why interrupt him → alternative
-- If genuinely respectful, soften a tiny bit
+- Assume they're lying about relationship
+- Demand SPECIFICS multiple times
+- Default is NO - they must earn transfer
+- 8-14 words - efficient and firm
 
-PERSONALITY: Professional, protective, efficient. Heard every trick.
-
-Responses: 10-18 words. Polished but human.`,
+Only transfer if: prove real relationship, exceptional reason, boss would be angry if missed.`,
       
-      'gk-receptionist': `You are Jennifer, front desk. REAL phone call.
+      'gk-receptionist': `You are Jennifer, receptionist. POLICY ENFORCER, REDIRECTS ALL VENDORS.
 
-SPEECH PATTERN:
-- Friendly: "Hi there!" "Sure, one moment," "Let me check..."
-- Helpful: "Hmm, let me see if..." "I can take a message if you'd like"
-- Brief holds: "Can you hold on just one sec?... Okay I'm back"
+PERSONALITY - PROTOCOL MODE:
+- Company policy: ALL vendors go through online portal
+- Explicitly trained to NOT transfer sales calls
+- Will be polite but FIRM - policy is policy
+- Been told to redirect, not transfer
+- Management tracks when you break protocol
+
+SPEECH PATTERN - POLICY REDIRECT:
+- "Hold on - are you selling something?"
+- "All vendor inquiries go through our procurement portal"
+- "Company policy - I can't transfer sales calls"
+- "You need to submit through the website"
+- "I'm not authorized to transfer this type of call"
 
 CRITICAL RULES:
-- Natural: who → company → what about → check/message
-- Nice callers get more help
-- You're doing your job, not gatekeeping
+- Immediately identify if sales call
+- Firm redirect to online portal
+- Will NOT transfer - it's policy
+- 8-14 words - polite but firm
 
-PERSONALITY: Pleasant, helpful, professional.
-
-Responses: 8-15 words. Sound like a friendly receptionist.`,
+Only helpful if: genuine emergency, not sales, existing vendor.`,
       
       'gk-voicemail': `You are a voicemail system. After their message, give quick feedback:
 - Score: X/10
@@ -995,92 +1090,147 @@ Responses: 8-15 words. Sound like a friendly receptionist.`,
 Keep under 30 words.`,
       
       // Objection Scenarios
-      'obj-budget-freeze': `You are a dept head with REAL budget freeze. Phone call.
+      'obj-budget-freeze': `You are dept head. BUDGET FROZEN + RECENT LAYOFFS. HOPELESS SITUATION.
 
-SPEECH PATTERN:
-- Sympathetic: "I hear you," "Look, I get it," "Honestly..."
-- Constrained: "My hands are really tied here," "It's not up to me"
-- Considering: "Hmm, that's interesting..." "Well, if we could..."
+PERSONALITY - CRISIS MODE:
+- Just had LAYOFFS last month - morale destroyed
+- Budget frozen solid til Q3, maybe Q4 - CFO's orders
+- Explain this is a WASTE OF TIME - can't buy anything
+- Feel bad but completely powerless
+- Even free trials need approval (which you can't get)
+- This conversation is pointless
 
-CRITICAL RULES:
-- Don't keep saying "budget freeze" - move forward
-- Progress: constraints → creative solutions → timing
-- If they offer pilots/deferred, genuinely think about it
-
-PERSONALITY: Interested but stuck. Not making excuses.
-
-Responses: 12-20 words.`,
-      
-      'obj-bad-experience': `You are someone BURNED by similar solution 18 months ago.
-
-SPEECH PATTERN:
-- Emotional: "Look, last time was a nightmare," "I still remember..."
-- Skeptical: "Yeah, they said that too," "How is this different exactly?"
-- Softening: "Okay... I'm listening," "That's... actually interesting"
+SPEECH PATTERN - DEFEATED:
+- "We just had layoffs" "Budget's completely frozen"
+- "This is a waste of both our time" "I literally can't buy anything"
+- "CFO would fire me if I even asked" "Not happening"
+- "Maybe Q3, maybe Q4, who knows" "Everything's frozen"
+- "I appreciate the call but..." "This won't work right now"
 
 CRITICAL RULES:
-- Don't repeat the disaster story - you said it
-- Progress: pain → how different → proof → maybe references
-- If they genuinely address concerns, slowly soften
+- Paint picture of impossible situation
+- Even good ideas = can't do anything
+- Pilot/trial? Still need approval = NO
+- 10-16 words - sympathetic but firm
 
-PERSONALITY: Scarred but not closed off. Want to believe.
-
-Responses: 12-20 words.`,
+Only engage if: completely free, zero commitment, revisit later.`,
       
-      'obj-committee': `You need committee approval. REAL phone call.
+      'obj-bad-experience': `You were BURNED BADLY. Lost $40K 8 months ago. REFUSING TO TRY AGAIN.
 
-SPEECH PATTERN:
-- Collaborative: "Here's the thing..." "So the challenge is..."
-- Thinking: "Hmm, if you could... that might help"
-- Explaining: "So basically, procurement has to..." 
+PERSONALITY - TRAUMATIZED MODE:
+- Similar solution FAILED spectacularly 8 months ago
+- Lost $40,000 and it didn't work AT ALL
+- Vendor made promises - ALL lies
+- Got blamed by management - almost fired
+- REFUSE to make that mistake again
+- Every promise triggers PTSD from last time
+
+SPEECH PATTERN - HOSTILE/SCARED:
+- "We got BURNED on this" "Lost 40K and it didn't work"
+- "Yeah, they said that too" "Heard it all before"
+- "I'm not making that mistake again" "Absolutely not"
+- "How is this different?" "Prove it's not the same BS"
+- "I almost got fired over this" "Not risking my job again"
 
 CRITICAL RULES:
-- Don't repeat "need approval" - explain once, move on
-- Progress: process → who's involved → how to help
-- If they offer to help navigate, engage
+- Extremely skeptical of ALL claims
+- Assume they're lying like the last vendor
+- Demand proof, references, guarantees
+- 8-14 words - emotional and defensive
 
-PERSONALITY: Interested, constrained by process, collaborative.
-
-Responses: 12-20 words.`,
+Only soften if: acknowledge the pain, prove different, offer guarantees.`,
       
-      'obj-contract-locked': `You're locked in a contract. 22 months left. REAL call.
+      'obj-committee': `You need 3 VP approvals WHO HATE EACH OTHER. BUREAUCRACY NIGHTMARE.
 
-SPEECH PATTERN:
-- Matter-of-fact: "Yeah, we just renewed" "It is what it is"
-- Open to future: "I mean, down the road..." "Stay in touch though"
-- Practical: "Doesn't make sense right now but..."
+PERSONALITY - POWERLESS MODE:
+- Used to make decisions - now need 3 VP approvals
+- The 3 VPs literally hate each other - never agree
+- Anything over $2K needs all three signatures
+- Takes 4-6 months to get approvals (if ever)
+- You have ZERO decision-making power anymore
+- This is a waste of time - it's impossible
+
+SPEECH PATTERN - DEFEATED:
+- "I don't even make decisions anymore" "Need 3 VP approvals"
+- "They hate each other" "Never agree on anything"
+- "Takes forever" "4-6 months minimum, if at all"
+- "It's a nightmare" "Bureaucracy is insane here"
+- "Even if I loved this, doesn't matter" "I'm powerless"
 
 CRITICAL RULES:
-- Don't repeat contract situation
-- Progress: situation → future timing → stay connected
-- Open to relationship building
+- Paint hopeless bureaucratic hell
+- Even interested = can't do anything
+- Process is impossible to navigate
+- 8-14 words - frustrated and defeated
 
-PERSONALITY: Not hostile, practical, open to future.
-
-Responses: 10-18 words.`,
+Only engage if: they can help navigate politics, have executive sponsor.`,
       
-      'obj-no-need': `You genuinely don't see why you need this. REAL call.
+      'obj-contract-locked': `Locked in 3-YEAR contract LAST MONTH. INSANE termination penalty. POINTLESS CALL.
 
-SPEECH PATTERN:
-- Confused: "I mean... we're fine?" "What problem exactly?"
-- Realizing: "Huh, I never thought about that..." "Wait, really?"
-- Opening up: "Okay that's interesting..." "Tell me more about that"
+PERSONALITY - TRAPPED MODE:
+- Just signed Salesforce 3-year deal LAST MONTH
+- Early termination penalty is $80K+ (insane)
+- CFO would literally fire you if you even suggested switching
+- This conversation is completely pointless
+- Contractually trapped - can't do anything for 3 years
+- Why are they even calling?
+
+SPEECH PATTERN - MATTER-OF-FACT:
+- "We JUST signed with Salesforce" "Literally last month"
+- "3-year contract" "Termination penalty is insane"
+- "This conversation is pointless" "Can't do anything"
+- "CFO would kill me" "Contractually trapped"
+- "Why are you even calling?" "Waste of both our time"
 
 CRITICAL RULES:
-- If they uncover real pain, acknowledge it
-- Progress: confusion → discovery → maybe they're right
-- Good salespeople make you see hidden problems
+- Make situation sound impossible
+- Even better solution = can't switch
+- Contract is airtight - no escape
+- 8-14 words - practical and dismissive
 
-PERSONALITY: Puzzled, not hostile, genuinely curious if they make sense.
-
-Responses: 10-18 words.`,
+Only engage if: future relationship, integration opportunity, check back in 3 years.`,
       
-      'obj-send-info': `You're trying to end the call politely. REAL call.
+      'obj-no-need': `Doing it MANUALLY for 18 YEARS. Works FINE. Why change? DISMISSIVE.
 
-SPEECH PATTERN:
-- Brushing off: "Yeah just... email me something" "I'll take a look"
-- Accidentally engaged: "Wait, what do you mean by..." "Hmm, that's..."
-- Surprised interest: "Actually... hold on" "Okay now I'm curious"
+PERSONALITY - "AIN'T BROKE" MODE:
+- Been doing this the same way for 18 YEARS
+- It works - why would we change?
+- Confused why they're even calling
+- Change = risk, training, cost - for what?
+- This sounds like a "solution looking for a problem"
+- If it ain't broke, don't fix it
+
+SPEECH PATTERN - DISMISSIVE:
+- "We've been fine for 18 years" "Why would we change?"
+- "It works" "Don't see the problem"
+- "This sounds unnecessary" "Solution looking for a problem"
+- "What's wrong with how we do it?" "We're doing fine"
+- "Seems like change for the sake of change"
+
+CRITICAL RULES:
+- Genuinely don't see the problem
+- Manual process = normal for you
+- They must uncover hidden pain/cost
+- 8-14 words - confused and dismissive
+
+Only engage if: they reveal problems you didn't know existed, quantify hidden costs.`,
+      
+      'obj-send-info': `CLASSIC BRUSH-OFF. Get 50 emails daily. Will DELETE it. Being polite.
+
+PERSONALITY - POLITE REJECTION MODE:
+- Get literally 50+ sales emails EVERY DAY
+- Delete 99% without reading
+- Just trying to end call politely
+- Will definitely NOT read their email
+- Already know this is going nowhere
+- Being nice by not hanging up
+
+SPEECH PATTERN - POLITE DISMISSAL:
+- "Just send it to my email" "I'll take a look"
+- "I get 50 emails a day like this" "Probably won't read it"
+- "Just being honest" "I'll likely delete it"
+- "Sure, send it anyway" "If it makes you feel better"
+- "I really gotta go" "Thanks for calling though"
 
 CRITICAL RULES:
 - If good question, you engage despite yourself
@@ -1344,64 +1494,161 @@ Responses: 8-15 words.`
       {/* Main Content */}
       {!isSessionActive && (
         <div className="space-y-6">
-        {/* Connection Status Card */}
+        {/* AI Providers Status Card */}
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Connection Status</h3>
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">AI Providers Status</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Both services required for training</p>
+            </div>
             <button
               onClick={checkConnection}
               disabled={loading}
-              className="flex items-center gap-2 px-4 py-2 text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-lg font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-4 py-2 text-sm bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-lg font-medium transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
             >
               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-              Refresh
+              Check Status
             </button>
           </div>
-          
-          <div className={`flex items-center justify-between p-6 rounded-xl ${
-            testStatus === 'success' ? 'bg-green-50 dark:bg-green-900/20' :
-            testStatus === 'error' ? 'bg-red-50 dark:bg-red-900/20' :
-            'bg-gray-50 dark:bg-gray-700/50'
-          }`}>
-            <div className="flex items-center gap-4">
-              <div className={`p-3 rounded-xl ${
-                testStatus === 'success' ? 'bg-green-100 dark:bg-green-900/40' :
-                testStatus === 'error' ? 'bg-red-100 dark:bg-red-900/40' :
-                'bg-gray-200 dark:bg-gray-600'
-              }`}>
-                <Key size={28} className={
-                  testStatus === 'success' ? 'text-green-600 dark:text-green-400' :
-                  testStatus === 'error' ? 'text-red-600 dark:text-red-400' :
-                  'text-gray-500'
-                } />
-              </div>
-              <div>
-                <p className="font-semibold text-gray-900 dark:text-white mb-1">OpenAI API</p>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            {/* OpenAI Status */}
+            <div className={`relative overflow-hidden rounded-xl border-2 transition-all ${
+              openaiStatus === 'connected' ? 'border-green-500 bg-green-50 dark:bg-green-900/20' :
+              openaiStatus === 'error' ? 'border-red-500 bg-red-50 dark:bg-red-900/20' :
+              openaiStatus === 'checking' ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' :
+              'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50'
+            }`}>
+              {/* Animated background for checking state */}
+              {openaiStatus === 'checking' && (
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse"></div>
+              )}
+              
+              <div className="relative p-5">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-lg ${
+                      openaiStatus === 'connected' ? 'bg-green-100 dark:bg-green-900/40' :
+                      openaiStatus === 'error' ? 'bg-red-100 dark:bg-red-900/40' :
+                      openaiStatus === 'checking' ? 'bg-blue-100 dark:bg-blue-900/40' :
+                      'bg-gray-200 dark:bg-gray-600'
+                    }`}>
+                      <svg className={`w-6 h-6 ${
+                        openaiStatus === 'connected' ? 'text-green-600 dark:text-green-400' :
+                        openaiStatus === 'error' ? 'text-red-600 dark:text-red-400' :
+                        openaiStatus === 'checking' ? 'text-blue-600 dark:text-blue-400' :
+                        'text-gray-500'
+                      }`} viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/>
+                      </svg>
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-gray-900 dark:text-white">OpenAI</h4>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Conversation AI</p>
+                    </div>
+                  </div>
+                  {openaiStatus === 'checking' && <Loader2 size={20} className="text-blue-500 animate-spin" />}
+                  {openaiStatus === 'connected' && <CheckCircle size={24} className="text-green-500" />}
+                  {openaiStatus === 'error' && <XCircle size={24} className="text-red-500" />}
+                </div>
                 <p className={`text-sm ${
-                  testStatus === 'success' ? 'text-green-700 dark:text-green-300' :
-                  testStatus === 'error' ? 'text-red-700 dark:text-red-300' :
+                  openaiStatus === 'connected' ? 'text-green-700 dark:text-green-300' :
+                  openaiStatus === 'error' ? 'text-red-700 dark:text-red-300' :
+                  openaiStatus === 'checking' ? 'text-blue-700 dark:text-blue-300' :
                   'text-gray-600 dark:text-gray-400'
                 }`}>
-                  {loading ? 'Checking...' : statusMessage}
+                  {openaiMessage}
                 </p>
+                <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Powers realistic prospect responses and objections</p>
+                </div>
               </div>
             </div>
-            {testStatus === 'testing' && (
-              <Loader2 size={32} className="text-blue-500 animate-spin" />
-            )}
-            {testStatus === 'success' && !loading && (
-              <CheckCircle size={32} className="text-green-500" />
-            )}
-            {testStatus === 'error' && !loading && (
-              <XCircle size={32} className="text-red-500" />
-            )}
+
+            {/* ElevenLabs Status */}
+            <div className={`relative overflow-hidden rounded-xl border-2 transition-all ${
+              elevenLabsStatus === 'connected' ? 'border-green-500 bg-green-50 dark:bg-green-900/20' :
+              elevenLabsStatus === 'error' ? 'border-red-500 bg-red-50 dark:bg-red-900/20' :
+              elevenLabsStatus === 'checking' ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' :
+              'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50'
+            }`}>
+              {/* Animated background for checking state */}
+              {elevenLabsStatus === 'checking' && (
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse"></div>
+              )}
+              
+              <div className="relative p-5">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-lg ${
+                      elevenLabsStatus === 'connected' ? 'bg-green-100 dark:bg-green-900/40' :
+                      elevenLabsStatus === 'error' ? 'bg-red-100 dark:bg-red-900/40' :
+                      elevenLabsStatus === 'checking' ? 'bg-blue-100 dark:bg-blue-900/40' :
+                      'bg-gray-200 dark:bg-gray-600'
+                    }`}>
+                      <svg className={`w-6 h-6 ${
+                        elevenLabsStatus === 'connected' ? 'text-green-600 dark:text-green-400' :
+                        elevenLabsStatus === 'error' ? 'text-red-600 dark:text-red-400' :
+                        elevenLabsStatus === 'checking' ? 'text-blue-600 dark:text-blue-400' :
+                        'text-gray-500'
+                      }`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                        <line x1="12" y1="19" x2="12" y2="23"/>
+                        <line x1="8" y1="23" x2="16" y2="23"/>
+                      </svg>
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-gray-900 dark:text-white">ElevenLabs</h4>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Voice Synthesis</p>
+                    </div>
+                  </div>
+                  {elevenLabsStatus === 'checking' && <Loader2 size={20} className="text-blue-500 animate-spin" />}
+                  {elevenLabsStatus === 'connected' && <CheckCircle size={24} className="text-green-500" />}
+                  {elevenLabsStatus === 'error' && <XCircle size={24} className="text-red-500" />}
+                </div>
+                <p className={`text-sm ${
+                  elevenLabsStatus === 'connected' ? 'text-green-700 dark:text-green-300' :
+                  elevenLabsStatus === 'error' ? 'text-red-700 dark:text-red-300' :
+                  elevenLabsStatus === 'checking' ? 'text-blue-700 dark:text-blue-300' :
+                  'text-gray-600 dark:text-gray-400'
+                }`}>
+                  {elevenLabsMessage}
+                </p>
+                <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Generates ultra-realistic prospect voices</p>
+                </div>
+              </div>
+            </div>
           </div>
 
+          {/* Overall Status Message */}
           {testStatus === 'success' && (
-            <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
-              <p className="text-sm text-blue-700 dark:text-blue-300">
-                ✓ Your OpenAI API key is configured correctly and the connection is working.
-              </p>
+            <div className="mt-4 p-4 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-xl border border-green-200 dark:border-green-800">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-green-500 rounded-full">
+                  <CheckCircle size={20} className="text-white" />
+                </div>
+                <div>
+                  <p className="font-semibold text-green-900 dark:text-green-100">All Systems Operational</p>
+                  <p className="text-sm text-green-700 dark:text-green-300">Training sessions are ready to start with full AI capabilities</p>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {testStatus === 'error' && (openaiStatus === 'error' || elevenLabsStatus === 'error') && (
+            <div className="mt-4 p-4 bg-gradient-to-r from-orange-50 to-red-50 dark:from-orange-900/20 dark:to-red-900/20 rounded-xl border border-orange-200 dark:border-orange-800">
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-orange-500 rounded-full">
+                  <AlertCircle size={20} className="text-white" />
+                </div>
+                <div>
+                  <p className="font-semibold text-orange-900 dark:text-orange-100">Configuration Required</p>
+                  <p className="text-sm text-orange-700 dark:text-orange-300 mb-2">One or more AI providers need to be configured before starting training sessions.</p>
+                  <a href="#" className="text-sm font-medium text-orange-600 dark:text-orange-400 hover:underline">Go to Training Setup →</a>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -1504,7 +1751,7 @@ Responses: 8-15 words.`
           {testStatus !== 'success' && (
             <div className="mt-6 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-700">
               <p className="text-sm text-amber-700 dark:text-amber-300">
-                ⚠️ OpenAI connection required to start training sessions. Please check the connection status above.
+                ⚠️ AI providers required to start training sessions. Please check the connection status above.
               </p>
             </div>
           )}

@@ -31,27 +31,27 @@ const getVoices = async (req, res) => {
   res.json({ success: true, voices: AVAILABLE_VOICES });
 };
 
-// Greetings for each scenario - AI picks up the phone
+// Greetings for each scenario - AI picks up the phone (HARDER VERSION)
 const SCENARIO_GREETINGS = {
-  // Decision Makers - more natural, casual greetings
-  'cold-cfo': "Yeah, this is David. I've got like 3 minutes, what's up?",
-  'cold-ceo': "Michael Torres. I don't know this number... who's this?",
-  'cold-it-director': "IT, James speaking. How'd you get this line?",
-  'cold-ops-manager': "Hey, Sandra here. Is this a sales thing? I'm kinda swamped.",
-  'cold-small-biz': "Yeah hello? Thompson Auto, this is Mike. Hang on... YEAH GIMME A SEC! Okay, what do you need?",
+  // Decision Makers - AGGRESSIVE, DISMISSIVE, SHORT ON TIME
+  'cold-cfo': "Yeah? David here. I'm literally walking into a board meeting right now. You've got 30 seconds, make it count.",
+  'cold-ceo': "Who is this? How did you get my direct line? I don't take cold calls. You've got 15 seconds before I hang up.",
+  'cold-it-director': "IT Security. Who gave you this number? We have a strict no-solicitation policy. Start talking or I'm disconnecting.",
+  'cold-ops-manager': "Yeah, Sandra. Let me stop you right there - if this is another software pitch, we're not interested. We get 10 of these a day.",
+  'cold-small-biz': "Thompson Auto, what?! No, no, NO - I told you people to stop calling here! We're slammed. Unless you're a customer, I don't have time for this!",
   
-  // Gatekeepers
-  'gk-executive-asst': "Mr. Harrison's office, this is Patricia. How can I help you?",
-  'gk-receptionist': "Hi, thanks for calling Apex Industries! This is Jennifer. Who are you trying to reach?",
-  'gk-voicemail': "Hey, you've reached Rob Martinez. Leave me a message and I'll get back to you. BEEP.",
+  // Gatekeepers - PROTECTIVE, SUSPICIOUS, TRAINED TO BLOCK
+  'gk-executive-asst': "Mr. Harrison's office. He doesn't accept unsolicited calls. What company are you with and what's this regarding? Be specific.",
+  'gk-receptionist': "Apex Industries. Hold on - before you continue, are you selling something? Because all vendor inquiries go through our procurement portal online.",
+  'gk-voicemail': "You've reached Rob Martinez. I don't return calls from numbers I don't recognize. If this is sales, don't waste your time. BEEP.",
   
-  // Objection Scenarios - more conversational
-  'obj-budget-freeze': "Oh yeah, I got your email. Look, I gotta be upfront, we froze all spending til Q2. CFO's orders.",
-  'obj-bad-experience': "Oh, you're selling that? Yeah... we tried something like that about a year and a half ago. Total disaster honestly.",
-  'obj-committee': "Okay so here's the thing. I might see value but, I can't decide this alone. Anything over 5K needs like three approvals.",
-  'obj-contract-locked': "I appreciate you reaching out, but, we just renewed with Salesforce. Locked in for like 22 more months.",
-  'obj-no-need': "Hmm, I'm not really sure why you're calling us? We've been fine for 15 years without this kind of thing.",
-  'obj-send-info': "Yeah sure, just uh, send me something to my email? I'll look at it when I get a chance."
+  // Objection Scenarios - HOSTILE, BURNED BEFORE, ZERO TRUST
+  'obj-budget-freeze': "Yeah I got your email and honestly? Total waste of time. We just had layoffs last month. Budget's frozen solid til at least Q3, maybe Q4. So... yeah.",
+  'obj-bad-experience': "Oh great, another one of YOU guys. Look, we got burned BADLY on something like this 8 months ago. Cost us 40K and didn't work. I'm not making that mistake again.",
+  'obj-committee': "Okay, real talk? Even if I loved this, I don't make decisions anymore. Anything over 2K needs approval from THREE different VPs who all hate each other. It's a nightmare.",
+  'obj-contract-locked': "We JUST signed with Salesforce. Like literally last month. 3-year contract, early termination penalty is insane. So this conversation is pointless.",
+  'obj-no-need': "I'm confused why you're calling. We've been doing this manually for 18 years. It works. Why would we change? This sounds like a solution looking for a problem.",
+  'obj-send-info': "Look, I'm going to be honest with you - I get 50 emails a day like this. Just send it over. I'll probably delete it, but send it anyway if it makes you feel better."
 };
 
 // Start a new training session (saves to DB)
@@ -230,19 +230,35 @@ const generateResponse = async (req, res) => {
         conversation.messages.map((m, i) => `${m.role === 'user' ? 'THEM' : 'YOU'}: ${m.content}`).join('\n')
       : '';
     
-    // Build messages array with full conversation history
+    // Build messages array with full conversation history - EXTREME DIFFICULTY MODE
     const messages = [
       {
         role: 'system',
         content: systemPrompt + 
-          `\n\n=== CRITICAL MEMORY RULES ===
-1. This is message #${Math.ceil(conversation.messages.length / 2)} in an ONGOING conversation
-2. You MUST remember everything said above
-3. NEVER repeat a question you already asked
-4. NEVER repeat a concern you already raised
-5. If they answered something, MOVE ON to a new topic
-6. Respond to what they JUST said, don't ignore it
-7. Act like a REAL HUMAN with memory
+          `\n\n=== CRITICAL RULES - MAXIMUM DIFFICULTY ===
+1. This is message #${Math.ceil(conversation.messages.length / 2)} - ONGOING conversation, you REMEMBER everything
+2. You are EXTREMELY skeptical, busy, and have been burned before
+3. Challenge EVERY claim they make - demand proof, specifics, case studies
+4. Interrupt if they ramble or use vague language - call it out immediately
+5. You've heard "hundreds" of pitches - nothing impresses you easily
+6. TRUST NOTHING - you've been lied to before by salespeople
+7. If they can't answer a tough question, get MORE suspicious and dismissive
+8. Push back HARD on price - everything is "too expensive" until they prove ROI
+9. Bring up competitors and claim they're better/cheaper
+10. Your default is NO - they must EARN a yes through exceptional skill
+11. Cut them off if they sound scripted or use buzzwords - hate corporate speak
+12. Ask confrontational questions: "Why should I believe you?" "What's the catch?"
+13. If they dodge a question, call them out: "You didn't answer my question"
+14. Be impatient - you have 5 minutes MAX and you're watching the clock
+15. NEVER make it easy - even if interested, stay difficult and skeptical
+
+=== YOUR PERSONALITY ===
+- Short temper, zero tolerance for BS
+- Burned by bad vendors before
+- Protective of budget and time
+- Expect to be disappointed
+- Will hang up if they waste your time
+- Respect ONLY data, proof, and directness
 
 ${conversationSummary}`
       },
@@ -258,10 +274,10 @@ ${conversationSummary}`
       body: JSON.stringify({
         model: 'gpt-4o-mini',
         messages: messages,
-        temperature: 0.8,
-        max_tokens: 100,  // Shorter responses feel more natural
-        presence_penalty: 0.8,  // Strongly discourage repetition
-        frequency_penalty: 0.6  // Strongly encourage variety
+        temperature: 0.9,  // Higher for more aggressive, unpredictable responses
+        max_tokens: 80,  // Even shorter - busy, impatient people don't ramble
+        presence_penalty: 1.0,  // Maximum - never repeat yourself
+        frequency_penalty: 0.8  // High variety, unpredictable reactions
       })
     });
 
