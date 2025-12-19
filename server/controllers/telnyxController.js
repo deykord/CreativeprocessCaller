@@ -105,14 +105,14 @@ async function handleCallInitiated(payload) {
   const from = payload.from;
   const to = payload.to;
 
-  console.log(`Call initiated: ${callControlId}, direction: ${direction}, from: ${from}, to: ${to}`);
+  console.log(`📞 Call initiated: ${callControlId}, direction: ${direction}, from: ${from}, to: ${to}`);
 
   // Store call status
   activeCallStatuses.set(callControlId, {
     callControlId,
     callLegId,
     callSessionId,
-    status: 'initiated',
+    status: direction === 'incoming' ? 'ringing' : 'initiated',
     direction,
     from,
     to,
@@ -120,8 +120,18 @@ async function handleCallInitiated(payload) {
     updatedAt: new Date().toISOString(),
   });
 
-  // For inbound calls, you might want to auto-answer here
-  // or send to an IVR, etc.
+  // For inbound calls, mark as waiting for agent to answer in UI
+  if (direction === 'incoming') {
+    console.log(`🔔 INBOUND CALL from ${from} to ${to} - Call Control ID: ${callControlId}`);
+    
+    // Set status to waiting_for_agent so it appears in the UI
+    activeCallStatuses.set(callControlId, {
+      ...activeCallStatuses.get(callControlId),
+      status: 'waiting_for_agent'
+    });
+    
+    console.log(`📞 Inbound call waiting for agent to answer: ${callControlId}`);
+  }
 }
 
 /**
@@ -142,8 +152,13 @@ async function handleCallAnswered(payload) {
     updatedAt: new Date().toISOString(),
   });
 
-  // Optionally start recording
-  // await telnyxClient.startRecording(callControlId);
+  // Start recording automatically for all answered calls
+  try {
+    await telnyxClient.startRecording(callControlId, 'dual');
+    console.log(`✓ Recording started for call: ${callControlId}`);
+  } catch (error) {
+    console.error(`✗ Failed to start recording for call ${callControlId}:`, error);
+  }
 }
 
 /**
@@ -184,10 +199,12 @@ async function handleCallHangup(payload) {
 
   console.log(`Call hangup: ${callControlId}, cause: ${hangupCause}, source: ${hangupSource}, duration: ${duration}s`);
 
+  // Get call status to determine if this was an inbound call
+  const callStatus = activeCallStatuses.get(callControlId) || {};
+
   // Update call status
-  const existing = activeCallStatuses.get(callControlId) || {};
   activeCallStatuses.set(callControlId, {
-    ...existing,
+    ...callStatus,
     callControlId,
     status: 'completed',
     hangupCause,
@@ -197,6 +214,56 @@ async function handleCallHangup(payload) {
     endTime: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
+
+  // For inbound calls, automatically log them to the database
+  if (callStatus.direction === 'incoming') {
+    console.log(`📞 Logging inbound call to database: ${callControlId}`);
+
+    try {
+      const dbService = require('../services/databaseService');
+
+      // Determine outcome based on call duration and answered status
+      let outcome = 'No Answer';
+      if (callStatus.answeredAt) {
+        // Call was answered
+        if (duration > 30) {
+          outcome = 'Connected'; // Long conversation
+        } else if (duration > 10) {
+          outcome = 'Connected'; // Medium conversation
+        } else {
+          outcome = 'Connected'; // Short conversation but answered
+        }
+      } else if (duration > 5) {
+        // Call rang for a while but wasn't answered
+        outcome = 'No Answer';
+      }
+
+      // For inbound calls:
+      // - phone_number stores the caller's number for consistency
+      // - from_number also stores the caller's number
+      // - prospect_name shows a descriptive label
+      const callLog = await dbService.createCallLog({
+        prospectId: null, // We don't know the prospect for inbound calls
+        callerId: callStatus.answeredBy || null, // Agent who answered
+        phoneNumber: callStatus.from, // Store caller's number as the main phone number
+        fromNumber: callStatus.from, // The caller's number
+        outcome: outcome,
+        duration: duration,
+        notes: `Inbound call to ${callStatus.to}`,
+        callSid: callControlId,
+        endReason: endReason,
+        answeredBy: callStatus.answeredBy || null,
+        recordingUrl: callStatus.recordingUrl || null,
+        prospectName: `Inbound Caller (${callStatus.from})`,
+        direction: 'inbound'
+      });
+
+      console.log(`✓ Inbound call logged to database: ${callLog.id}`);
+
+    } catch (error) {
+      console.error(`❌ Failed to log inbound call ${callControlId}:`, error);
+    }
+  }
 
   // Clean up after 5 minutes
   setTimeout(() => {
@@ -210,9 +277,10 @@ async function handleCallHangup(payload) {
 async function handleRecordingSaved(payload) {
   const callControlId = payload.call_control_id;
   const recordingId = payload.recording_id;
-  const recordingUrl = payload.recording_urls?.mp3;
+  const recordingUrl = payload.recording_urls?.mp3 || payload.recording_urls?.wav;
 
   console.log(`Recording saved: ${recordingId} for call ${callControlId}`);
+  console.log(`Recording URL: ${recordingUrl}`);
 
   // Update call status with recording info
   const existing = activeCallStatuses.get(callControlId) || {};
@@ -223,7 +291,22 @@ async function handleRecordingSaved(payload) {
     updatedAt: new Date().toISOString(),
   });
 
-  // You could also save to database here
+  // Save recording URL to database
+  if (recordingUrl) {
+    try {
+      const dbService = require('../services/databaseService');
+      // Try to update the call log with the recording URL using call_sid (which stores callControlId for Telnyx)
+      const updated = await dbService.updateCallLogRecording(callControlId, recordingUrl);
+      
+      if (updated) {
+        console.log(`✓ Recording URL saved to database for call ${callControlId}`);
+      } else {
+        console.warn(`⚠ Call log not found for callControlId ${callControlId}, recording URL not saved to DB`);
+      }
+    } catch (error) {
+      console.error(`✗ Error saving recording URL to database:`, error);
+    }
+  }
 }
 
 /**
@@ -338,6 +421,86 @@ exports.getRecordings = async (req, res) => {
   } catch (error) {
     console.error('Error fetching Telnyx recordings:', error);
     res.status(500).json({ error: 'Failed to fetch recordings' });
+  }
+};
+/**
+ * Get pending inbound calls (waiting for agent to answer)
+ */
+exports.getPendingInboundCalls = (req, res) => {
+  try {
+    const calls = [];
+    
+    for (const [callControlId, callData] of activeCallStatuses.entries()) {
+      if (callData.direction === 'incoming' && callData.status === 'waiting_for_agent') {
+        calls.push({
+          callControlId: callData.callControlId,
+          from: callData.from,
+          to: callData.to,
+          startTime: callData.startTime,
+          waitingDuration: Math.floor((Date.now() - new Date(callData.startTime).getTime()) / 1000)
+        });
+      }
+    }
+    
+    res.json({ success: true, calls });
+  } catch (error) {
+    console.error('Error getting pending inbound calls:', error);
+    res.status(500).json({ error: 'Failed to get pending inbound calls' });
+  }
+};
+
+/**
+ * Answer an inbound call
+ */
+exports.answerInboundCall = async (req, res) => {
+  try {
+    const { callControlId } = req.params;
+    
+    console.log('🟢 Answering inbound call:', callControlId);
+    
+    const callStatus = activeCallStatuses.get(callControlId);
+    if (!callStatus) {
+      return res.status(404).json({ error: 'Call not found or already ended' });
+    }
+    
+    // Transfer the call directly to the agent's WebRTC client
+    // This will make the call ring on the WebRTC client, which can then answer it
+    if (config.telnyx.sipUsername) {
+      try {
+        const sipUri = `sip:${config.telnyx.sipUsername}@rtc.telnyx.com`;
+        console.log('🔄 Transferring inbound call to WebRTC client:', sipUri);
+        
+        await telnyxClient.transferCall(callControlId, sipUri);
+        
+        console.log('✅ Call transferred to WebRTC client - agent should now receive ringing notification');
+      } catch (transferError) {
+        console.error('⚠️ Failed to transfer call to WebRTC client:', transferError);
+        console.log('📞 Falling back to direct answer (no WebRTC audio)');
+        
+        // Fallback: answer the call directly if transfer fails
+        await telnyxClient.answerCall(callControlId);
+        console.log('📞 Call answered directly (WebRTC transfer failed)');
+      }
+    } else {
+      console.warn('⚠️ No SIP username configured - answering call directly without WebRTC');
+      await telnyxClient.answerCall(callControlId);
+    }
+    
+    // Update call status
+    callStatus.status = 'answered';
+    callStatus.answeredAt = new Date().toISOString();
+    callStatus.answeredBy = req.user?.id || 'unknown';
+    
+    res.json({ 
+      success: true, 
+      message: 'Call processed successfully',
+      callControlId: callControlId,
+      from: callStatus.from,
+      to: callStatus.to
+    });
+  } catch (error) {
+    console.error('❌ Error processing inbound call:', error);
+    res.status(500).json({ error: 'Failed to process call', details: error.message });
   }
 };
 

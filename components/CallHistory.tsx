@@ -18,10 +18,10 @@ const CallHistoryRow = React.memo(({ log, formatDuration, getOutcomeIcon }: {
       {new Date(log.timestamp).toLocaleString()}
     </td>
     <td className="p-4 font-medium text-gray-900 dark:text-white">
-      {log.prospectName}
+      {log.prospectName || (log.direction === 'inbound' ? `Inbound from ${log.fromNumber || log.phoneNumber}` : 'Unknown')}
     </td>
     <td className="p-4 text-sm font-mono text-gray-500 dark:text-gray-400">
-      {log.phoneNumber}
+      {log.direction === 'inbound' ? (log.fromNumber || log.phoneNumber) : log.phoneNumber}
     </td>
     <td className="p-4 text-sm text-gray-600 dark:text-gray-300">
       {formatDuration(log.duration)}

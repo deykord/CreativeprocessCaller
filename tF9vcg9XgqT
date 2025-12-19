@@ -1,0 +1,33 @@
+                                      Table "public.call_logs"
+    Column     |            Type             | Collation | Nullable |            Default            
+---------------+-----------------------------+-----------+----------+-------------------------------
+ id            | uuid                        |           | not null | uuid_generate_v4()
+ prospect_id   | uuid                        |           |          | 
+ caller_id     | uuid                        |           |          | 
+ phone_number  | character varying(50)       |           | not null | 
+ from_number   | character varying(50)       |           |          | 
+ outcome       | character varying(100)      |           |          | 
+ duration      | integer                     |           |          | 0
+ notes         | text                        |           |          | 
+ recording_url | character varying(500)      |           |          | 
+ started_at    | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ ended_at      | timestamp without time zone |           |          | 
+ created_at    | timestamp without time zone |           |          | CURRENT_TIMESTAMP
+ call_sid      | character varying(100)      |           |          | 
+ end_reason    | character varying(50)       |           |          | 
+ answered_by   | character varying(100)      |           |          | 
+ prospect_name | character varying(200)      |           |          | 
+ direction     | character varying(20)       |           |          | 'outbound'::character varying
+Indexes:
+    "call_logs_pkey" PRIMARY KEY, btree (id)
+    "idx_call_logs_caller" btree (caller_id)
+    "idx_call_logs_direction" btree (direction)
+    "idx_call_logs_prospect" btree (prospect_id)
+    "idx_call_logs_started" btree (started_at)
+Foreign-key constraints:
+    "call_logs_caller_id_fkey" FOREIGN KEY (caller_id) REFERENCES users(id)
+    "call_logs_prospect_id_fkey" FOREIGN KEY (prospect_id) REFERENCES prospects(id) ON DELETE CASCADE
+Referenced by:
+    TABLE "objection_logs" CONSTRAINT "objection_logs_call_log_id_fkey" FOREIGN KEY (call_log_id) REFERENCES call_logs(id) ON DELETE SET NULL
+    TABLE "voicemail_drops" CONSTRAINT "voicemail_drops_call_log_id_fkey" FOREIGN KEY (call_log_id) REFERENCES call_logs(id) ON DELETE SET NULL
+

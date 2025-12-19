@@ -1,15 +1,12 @@
 #!/bin/bash
 
 # =============================================================================
-# CreativeprocessCaller - Multi-Branch Deploy Script
+# CreativeprocessCaller - Deployment Script
 # =============================================================================
 # Usage:
-#   ./deploy.sh --pr           - Deploy pr branch to salescallagent.my (production)
-#   ./deploy.sh --dev          - Deploy dev branch to salescallagent.my/dev
-#   ./deploy.sh --both         - Deploy both pr and dev
+#   ./deploy.sh                - Deploy pr branch to salescallagent.my (production)
 #   ./deploy.sh --quick        - Quick deploy current branch (skip tests)
 #   ./deploy.sh --test-only    - Run tests only
-#   ./deploy.sh --watch        - Watch mode (auto-deploy on changes)
 # =============================================================================
 
 # Colors for output
@@ -134,29 +131,22 @@ run_unit_tests() {
 }
 
 # =============================================================================
-# Build Frontend for specific environment
+# Build Frontend for production
 # =============================================================================
 
 build_frontend() {
-    local TARGET=$1  # "pr" or "dev"
-    
-    log_header "Building Frontend ($TARGET)"
+    log_header "Building Frontend"
     
     cd "$PROJECT_DIR"
     
-    if [ "$TARGET" = "dev" ]; then
-        log_info "Building with base path /dev/"
-        VITE_BASE_PATH="/dev/" npm run build
-    else
-        log_info "Building with base path /"
-        VITE_BASE_PATH="/" npm run build
-    fi
+    log_info "Building with base path /"
+    VITE_BASE_PATH="/" npm run build
     
     if [ $? -eq 0 ]; then
-        test_pass "Frontend build ($TARGET)"
+        test_pass "Frontend build"
         log_success "Build size: $(du -sh dist | cut -f1)"
     else
-        test_fail "Frontend build failed ($TARGET)"
+        test_fail "Frontend build failed"
         exit 1
     fi
 }
@@ -166,34 +156,18 @@ build_frontend() {
 # =============================================================================
 
 deploy_frontend() {
-    local TARGET=$1  # "pr" or "dev"
-    local WEBROOT
-    
-    if [ "$TARGET" = "dev" ]; then
-        log_error "Dev deployment is no longer supported."
-        exit 1
-    else
-        WEBROOT="$WEBROOT_PR"
-    fi
-    
-    log_header "Deploying Frontend ($TARGET) -> $WEBROOT"
+    log_header "Deploying Frontend -> $WEBROOT_PR"
     
     cd "$PROJECT_DIR"
     
-    if [ "$TARGET" = "pr" ]; then
-        # For pr, remove everything except /dev folder
-        find "$WEBROOT" -mindepth 1 -maxdepth 1 ! -name 'dev' -exec rm -rf {} +
-        rsync -a dist/ "$WEBROOT/"
-    else
-        # For dev, just sync to /dev folder
-        rm -rf "$WEBROOT"/*
-        rsync -a dist/ "$WEBROOT/"
-    fi
+    # Deploy to production webroot
+    rm -rf "$WEBROOT_PR"/*
+    rsync -a dist/ "$WEBROOT_PR/"
     
     if [ $? -eq 0 ]; then
-        test_pass "Frontend deployed ($TARGET)"
+        test_pass "Frontend deployed"
     else
-        test_fail "Failed to deploy ($TARGET)"
+        test_fail "Failed to deploy"
     fi
     
     nginx -s reload 2>/dev/null && test_pass "Nginx reloaded" || log_warning "Nginx reload skipped"
@@ -204,18 +178,10 @@ deploy_frontend() {
 # =============================================================================
 
 restart_backend() {
-    local TARGET=$1  # "pr" or "dev"
-    local SERVICE_NAME PORT
+    local SERVICE_NAME="creativeprocess-backend"
+    local PORT=3001
     
-    if [ "$TARGET" = "dev" ]; then
-        SERVICE_NAME="creativeprocess-backend-dev"
-        PORT=3002
-    else
-        SERVICE_NAME="creativeprocess-backend"
-        PORT=3001
-    fi
-    
-    log_header "Restarting Backend ($TARGET) on port $PORT"
+    log_header "Restarting Backend on port $PORT"
     
     cd "$PROJECT_DIR/server"
     
@@ -234,11 +200,11 @@ restart_backend() {
 }
 
 # =============================================================================
-# Deploy PR Branch (Production)
+# Deploy Production
 # =============================================================================
 
-deploy_pr() {
-    log_header "🚀 DEPLOYING PR BRANCH (PRODUCTION)"
+deploy_production() {
+    log_header "🚀 DEPLOYING PRODUCTION"
     log_branch "pr -> salescallagent.my"
     
     cd "$PROJECT_DIR"
@@ -258,58 +224,15 @@ deploy_pr() {
         exit 1
     fi
     
-    build_frontend "pr"
-    deploy_frontend "pr"
-    restart_backend "pr"
+    build_frontend
+    deploy_frontend
+    restart_backend
     
     log_info "Returning to $CURRENT_BRANCH branch..."
     git checkout "$CURRENT_BRANCH"
     git stash pop 2>/dev/null || true
     
-    log_success "PR deployment complete! Visit: $FRONTEND_URL_PR"
-}
-
-# =============================================================================
-# Deploy Dev Branch
-# =============================================================================
-
-deploy_dev() {
-    log_header "🔧 DEPLOYING DEV BRANCH (TESTING)"
-    log_branch "dev -> salescallagent.my/dev"
-    
-    cd "$PROJECT_DIR"
-    
-    CURRENT_BRANCH=$(git branch --show-current)
-    
-    if [ "$CURRENT_BRANCH" = "dev" ]; then
-        log_info "Already on dev branch"
-    else
-        git stash --include-untracked 2>/dev/null
-        log_info "Switching to dev branch..."
-        git checkout dev
-        git pull origin dev 2>/dev/null || true
-    fi
-    
-    # Run tests before build
-    if ! run_unit_tests; then
-        log_error "Tests failed! Aborting deployment."
-        if [ "$CURRENT_BRANCH" != "dev" ]; then
-            git checkout "$CURRENT_BRANCH"
-            git stash pop 2>/dev/null || true
-        fi
-        exit 1
-    fi
-    
-    log_error "Dev deployment is no longer supported."
-    exit 1
-    
-    if [ "$CURRENT_BRANCH" != "dev" ]; then
-        log_info "Returning to $CURRENT_BRANCH branch..."
-        git checkout "$CURRENT_BRANCH"
-        git stash pop 2>/dev/null || true
-    fi
-    
-    log_success "Dev deployment complete! Visit: $FRONTEND_URL_DEV"
+    log_success "Deployment complete! Visit: $FRONTEND_URL_PR"
 }
 
 # =============================================================================
@@ -317,24 +240,15 @@ deploy_dev() {
 # =============================================================================
 
 api_health_tests() {
-    local TARGET=$1
-    local API_URL
-    
-    if [ "$TARGET" = "dev" ]; then
-        API_URL="$API_URL_DEV"
-    else
-        API_URL="$API_URL_PR"
-    fi
-    
-    log_header "API Health Tests ($TARGET)"
+    log_header "API Health Tests"
     
     sleep 2
     
-    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/prospects" 2>/dev/null || echo "000")
-    [ "$RESPONSE" = "200" ] && test_pass "GET /api/prospects ($TARGET)" || test_fail "GET /api/prospects ($TARGET - HTTP $RESPONSE)"
+    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL_PR/prospects" 2>/dev/null || echo "000")
+    [ "$RESPONSE" = "200" ] && test_pass "GET /api/prospects" || test_fail "GET /api/prospects (HTTP $RESPONSE)"
     
-    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL/voice/numbers" 2>/dev/null || echo "000")
-    [ "$RESPONSE" = "200" ] && test_pass "GET /api/voice/numbers ($TARGET)" || test_fail "GET /api/voice/numbers ($TARGET - HTTP $RESPONSE)"
+    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL_PR/voice/numbers" 2>/dev/null || echo "000")
+    [ "$RESPONSE" = "200" ] && test_pass "GET /api/voice/numbers" || test_fail "GET /api/voice/numbers (HTTP $RESPONSE)"
 }
 
 # =============================================================================
@@ -376,8 +290,7 @@ print_summary() {
     
     echo ""
     echo -e "${CYAN}URLs:${NC}"
-    echo -e "  Production (pr):  ${GREEN}$FRONTEND_URL_PR${NC}"
-    echo -e "  Development (dev): ${YELLOW}$FRONTEND_URL_DEV${NC}"
+    echo -e "  Production:  ${GREEN}$FRONTEND_URL_PR${NC}"
     echo ""
     pm2 status
 }
@@ -392,42 +305,13 @@ quick_deploy() {
     
     CURRENT_BRANCH=$(git branch --show-current)
     
-    if [ "$CURRENT_BRANCH" = "pr" ]; then
-        build_frontend "pr"
-        deploy_frontend "pr"
-        restart_backend "pr"
-        log_success "Deployed to: $FRONTEND_URL_PR"
-    elif [ "$CURRENT_BRANCH" = "dev" ]; then
-        build_frontend "dev"
-        deploy_frontend "dev"
-        restart_backend "dev"
-        log_success "Deployed to: $FRONTEND_URL_DEV"
-    else
-        log_warning "Current branch is '$CURRENT_BRANCH'. Building as dev..."
-        build_frontend "dev"
-        deploy_frontend "dev"
-        restart_backend "dev"
-        log_success "Deployed to: $FRONTEND_URL_DEV"
-    fi
+    log_info "Building current branch: $CURRENT_BRANCH"
+    build_frontend
+    deploy_frontend
+    restart_backend
+    log_success "Deployed to: $FRONTEND_URL_PR"
     
     pm2 status
-}
-
-# =============================================================================
-# Watch Mode
-# =============================================================================
-
-watch_mode() {
-    log_header "Watch Mode (Dev Branch)"
-    log_info "Watching for changes..."
-    log_info "Press Ctrl+C to stop"
-    echo ""
-    
-    command -v chokidar &> /dev/null || npm install -g chokidar-cli
-    
-    chokidar 'src/**/*' 'components/**/*' 'services/**/*' 'server/**/*.js' 'index.tsx' 'App.tsx' 'types.ts' \
-        --initial false \
-        -c 'echo "🔄 Changes detected..."; bash /root/CreativeprocessCaller/deploy.sh --dev'
 }
 
 # =============================================================================
@@ -440,15 +324,10 @@ show_help() {
     echo ""
     echo "Usage: ./deploy.sh [option]"
     echo ""
-    echo "Branch Deployment (runs tests first):"
-    echo -e "  ${GREEN}--pr${NC}           Deploy pr branch to salescallagent.my (production)"
-    echo -e "  ${YELLOW}--dev${NC}          Deploy dev branch to salescallagent.my/dev (testing)"
-    echo -e "  ${MAGENTA}--both${NC}         Deploy both pr and dev branches"
-    echo ""
-    echo "Quick Options:"
-    echo "  --quick, -q    Quick deploy current branch (skips tests)"
-    echo "  --test-only    Run API/DB tests only"
-    echo "  --watch, -w    Watch mode - auto-deploy dev on file changes"
+    echo "Deployment Options:"
+    echo -e "  ${GREEN}(no args)${NC}      Deploy pr branch to salescallagent.my (runs tests)"
+    echo -e "  ${GREEN}--quick, -q${NC}    Quick deploy current branch (skips tests)"
+    echo -e "  ${BLUE}--test-only${NC}    Run API/DB tests only"
     echo ""
     echo "Test Flow:"
     echo "  1. Run unit tests (vitest)"
@@ -458,13 +337,11 @@ show_help() {
     echo "  5. Run API health checks"
     echo ""
     echo "Examples:"
-    echo "  ./deploy.sh --dev      # Test + Deploy dev branch"
-    echo "  ./deploy.sh --pr       # Test + Deploy pr branch to production"
-    echo "  ./deploy.sh --quick    # Skip tests, quick deploy current branch"
+    echo "  ./deploy.sh            # Full deploy with tests"
+    echo "  ./deploy.sh --quick    # Skip tests, quick deploy"
     echo ""
-    echo "URLs:"
-    echo "  Production:  $FRONTEND_URL_PR"
-    echo "  Development: $FRONTEND_URL_DEV"
+    echo "URL:"
+    echo "  Production: $FRONTEND_URL_PR"
     echo ""
 }
 
@@ -476,43 +353,25 @@ main() {
     cd "$PROJECT_DIR"
     
     case "${1:-}" in
-        --pr|-p)
-            preflight_checks
-            deploy_pr
-            api_health_tests "pr"
-            print_summary
-            ;;
-        --dev|-d)
-            preflight_checks
-            deploy_dev
-            api_health_tests "dev"
-            print_summary
-            ;;
-        --both|-b)
-            preflight_checks
-            deploy_pr
-            deploy_dev
-            api_health_tests "pr"
-            api_health_tests "dev"
-            database_tests
-            print_summary
-            ;;
         --quick|-q)
             preflight_checks
             quick_deploy
             ;;
         --test-only|-t)
             preflight_checks
-            api_health_tests "pr"
-            api_health_tests "dev"
+            api_health_tests
             database_tests
             print_summary
             ;;
-        --watch|-w)
-            watch_mode
-            ;;
-        --help|-h|"")
+        --help|-h)
             show_help
+            ;;
+        "")
+            # Default: full production deployment
+            preflight_checks
+            deploy_production
+            api_health_tests
+            print_summary
             ;;
         *)
             log_error "Unknown option: $1"

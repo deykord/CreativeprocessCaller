@@ -209,6 +209,17 @@ class TelnyxService {
         this.handleCallUpdate(notification.call);
       }
     });
+
+    // Handle incoming calls
+    this.client.on('telnyx.socket.message', (message: any) => {
+      console.log('📨 Telnyx socket message:', message);
+      
+      // Check if this is an incoming call invitation
+      if (message.method === 'INVITE') {
+        console.log('📞 Incoming call detected!');
+        // The call object will be available via notification events
+      }
+    });
   }
 
   /**
@@ -261,6 +272,12 @@ class TelnyxService {
     // Update current call reference
     this.currentCall = call;
     this.currentCallId = call.id;
+    
+    // Store call control ID if available (for inbound calls)
+    if ((call as any).options?.call_control_id) {
+      this.callControlId = (call as any).options.call_control_id;
+      console.log('📝 Stored callControlId:', this.callControlId);
+    }
 
     switch (state) {
       case 'new':
@@ -465,6 +482,38 @@ class TelnyxService {
       this.client = null;
     }
     this.cleanup();
+  }
+
+  /**
+   * Answer an incoming call from Telnyx
+   * Note: For WebRTC inbound calls, the client needs to listen for telnyx.notification events
+   * with type 'callUpdate' and call.state 'ringing', then call answerIncomingCall
+   */
+  async answerIncomingCall(callControlId?: string): Promise<void> {
+    console.log('📞 Attempting to accept inbound call:', callControlId || 'current call');
+    
+    // For Telnyx, we need to find the call object and answer it
+    // The call should already exist in our client's call list
+    if (this.currentCall) {
+      // Check if callControlId matches (if provided)
+      if (callControlId && this.callControlId && this.callControlId !== callControlId) {
+        console.warn('⚠️ CallControlId mismatch:', { expected: callControlId, actual: this.callControlId });
+      }
+      
+      console.log('✓ Found active call (state: ' + this.currentCall.state + '), answering...');
+      try {
+        await this.currentCall.answer();
+        this.callStartTime = new Date();
+        this.emitStatus(CallState.CONNECTED);
+        console.log('✅ Inbound WebRTC call answered successfully');
+      } catch (error) {
+        console.error('❌ Failed to answer inbound call:', error);
+        throw error;
+      }
+    } else {
+      console.error('❌ No active call found for callControlId:', callControlId);
+      throw new Error('No active call to answer. The WebRTC client may not have received the call yet.');
+    }
   }
 
   /**

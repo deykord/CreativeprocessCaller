@@ -16,7 +16,9 @@ router.get('/configured', authMiddleware, telnyxController.isConfigured);
 router.get('/numbers', authMiddleware, telnyxController.getPhoneNumbers);
 router.get('/recordings', authMiddleware, telnyxController.getRecordings);
 router.get('/calls/active', authMiddleware, telnyxController.getActiveCalls);
+router.get('/calls/inbound/pending', authMiddleware, telnyxController.getPendingInboundCalls);
 router.get('/calls/:callControlId/status', authMiddleware, telnyxController.getCachedCallStatus);
+router.post('/calls/:callControlId/answer', authMiddleware, telnyxController.answerInboundCall);
 router.post('/calls/:callControlId/end', authMiddleware, telnyxController.endCall);
 
 module.exports = router;

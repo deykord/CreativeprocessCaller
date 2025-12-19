@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS call_logs (
     recording_url VARCHAR(500),
     call_sid VARCHAR(100), -- Twilio Call SID for tracking
     end_reason VARCHAR(50), -- How the call ended: customer_hangup, agent_hangup, voicemail, no_answer, busy, failed, canceled, etc.
-    answered_by VARCHAR(20), -- 'human', 'machine', or 'unknown' (AMD result)
+    answered_by VARCHAR(100), -- 'human', 'machine', 'unknown', or user ID (AMD result)
     prospect_name VARCHAR(200), -- Stored at call time for historical accuracy even if prospect is deleted
     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     ended_at TIMESTAMP,

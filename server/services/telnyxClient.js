@@ -62,10 +62,42 @@ async function makeCall(to, from, connectionId, webhookUrl) {
 async function hangupCall(callControlId) {
   ensureConfigured();
   try {
-    const call = new telnyx.Call({ call_control_id: callControlId });
-    await call.hangup();
-    console.log('Telnyx call hung up:', callControlId);
-    return { success: true };
+    // Use REST API directly to hang up the call
+    const https = require('https');
+    const url = `https://api.telnyx.com/v2/calls/${callControlId}/actions/hangup`;
+
+    const options = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+    };
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(url, options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          try {
+            const response = JSON.parse(data);
+            console.log('Telnyx call hung up:', callControlId);
+            resolve({ success: true, data: response });
+          } catch (error) {
+            reject(new Error(`Failed to parse response: ${data}`));
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.error('Error hanging up Telnyx call:', error);
+        reject(error);
+      });
+
+      req.end();
+    });
   } catch (error) {
     console.error('Error hanging up Telnyx call:', error);
     throw error;
@@ -78,12 +110,47 @@ async function hangupCall(callControlId) {
 async function answerCall(callControlId, webhookUrl) {
   ensureConfigured();
   try {
-    const call = new telnyx.Call({ call_control_id: callControlId });
-    await call.answer({
+    // Use REST API directly to answer the call
+    const https = require('https');
+    const url = `https://api.telnyx.com/v2/calls/${callControlId}/actions/answer`;
+
+    const postData = JSON.stringify({
       webhook_url: webhookUrl || `${config.serverUrl}/api/telnyx/voice`,
     });
-    console.log('Telnyx call answered:', callControlId);
-    return { success: true };
+
+    const options = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+    };
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(url, options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          try {
+            const response = JSON.parse(data);
+            console.log('Telnyx call answered:', callControlId);
+            resolve({ success: true, data: response });
+          } catch (error) {
+            reject(new Error(`Failed to parse response: ${data}`));
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.error('Error answering Telnyx call:', error);
+        reject(error);
+      });
+
+      req.write(postData);
+      req.end();
+    });
   } catch (error) {
     console.error('Error answering Telnyx call:', error);
     throw error;
@@ -96,10 +163,45 @@ async function answerCall(callControlId, webhookUrl) {
 async function transferCall(callControlId, to) {
   ensureConfigured();
   try {
-    const call = new telnyx.Call({ call_control_id: callControlId });
-    await call.transfer({ to });
-    console.log('Telnyx call transferred:', callControlId, 'to', to);
-    return { success: true };
+    // Use REST API directly to transfer the call
+    const https = require('https');
+    const url = `https://api.telnyx.com/v2/calls/${callControlId}/actions/transfer`;
+
+    const postData = JSON.stringify({ to });
+
+    const options = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+    };
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(url, options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          try {
+            const response = JSON.parse(data);
+            console.log('Telnyx call transferred:', callControlId, 'to', to);
+            resolve({ success: true, data: response });
+          } catch (error) {
+            reject(new Error(`Failed to parse response: ${data}`));
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.error('Error transferring Telnyx call:', error);
+        reject(error);
+      });
+
+      req.write(postData);
+      req.end();
+    });
   } catch (error) {
     console.error('Error transferring Telnyx call:', error);
     throw error;
@@ -112,13 +214,48 @@ async function transferCall(callControlId, to) {
 async function startRecording(callControlId, channels = 'dual') {
   ensureConfigured();
   try {
-    const call = new telnyx.Call({ call_control_id: callControlId });
-    await call.record_start({
+    // Use REST API directly to start recording
+    const https = require('https');
+    const url = `https://api.telnyx.com/v2/calls/${callControlId}/actions/record_start`;
+
+    const postData = JSON.stringify({
       channels,
       format: 'mp3',
     });
-    console.log('Telnyx recording started:', callControlId);
-    return { success: true };
+
+    const options = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+    };
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(url, options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          try {
+            const response = JSON.parse(data);
+            console.log('Telnyx recording started:', callControlId);
+            resolve({ success: true, data: response });
+          } catch (error) {
+            reject(new Error(`Failed to parse response: ${data}`));
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.error('Error starting Telnyx recording:', error);
+        reject(error);
+      });
+
+      req.write(postData);
+      req.end();
+    });
   } catch (error) {
     console.error('Error starting Telnyx recording:', error);
     throw error;
@@ -131,10 +268,42 @@ async function startRecording(callControlId, channels = 'dual') {
 async function stopRecording(callControlId) {
   ensureConfigured();
   try {
-    const call = new telnyx.Call({ call_control_id: callControlId });
-    await call.record_stop();
-    console.log('Telnyx recording stopped:', callControlId);
-    return { success: true };
+    // Use REST API directly to stop recording
+    const https = require('https');
+    const url = `https://api.telnyx.com/v2/calls/${callControlId}/actions/record_stop`;
+
+    const options = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+    };
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(url, options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          try {
+            const response = JSON.parse(data);
+            console.log('Telnyx recording stopped:', callControlId);
+            resolve({ success: true, data: response });
+          } catch (error) {
+            reject(new Error(`Failed to parse response: ${data}`));
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.error('Error stopping Telnyx recording:', error);
+        reject(error);
+      });
+
+      req.end();
+    });
   } catch (error) {
     console.error('Error stopping Telnyx recording:', error);
     throw error;
@@ -147,12 +316,47 @@ async function stopRecording(callControlId) {
 async function playAudio(callControlId, audioUrl) {
   ensureConfigured();
   try {
-    const call = new telnyx.Call({ call_control_id: callControlId });
-    await call.playback_start({
+    // Use REST API directly to play audio
+    const https = require('https');
+    const url = `https://api.telnyx.com/v2/calls/${callControlId}/actions/playback_start`;
+
+    const postData = JSON.stringify({
       audio_url: audioUrl,
     });
-    console.log('Telnyx audio playback started:', callControlId);
-    return { success: true };
+
+    const options = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+    };
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(url, options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          try {
+            const response = JSON.parse(data);
+            console.log('Telnyx audio playback started:', callControlId);
+            resolve({ success: true, data: response });
+          } catch (error) {
+            reject(new Error(`Failed to parse response: ${data}`));
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.error('Error playing audio on Telnyx call:', error);
+        reject(error);
+      });
+
+      req.write(postData);
+      req.end();
+    });
   } catch (error) {
     console.error('Error playing audio on Telnyx call:', error);
     throw error;
@@ -165,14 +369,49 @@ async function playAudio(callControlId, audioUrl) {
 async function speakText(callControlId, text, voice = 'female', language = 'en-US') {
   ensureConfigured();
   try {
-    const call = new telnyx.Call({ call_control_id: callControlId });
-    await call.speak({
+    // Use REST API directly to speak text
+    const https = require('https');
+    const url = `https://api.telnyx.com/v2/calls/${callControlId}/actions/speak`;
+
+    const postData = JSON.stringify({
       payload: text,
       voice,
       language,
     });
-    console.log('Telnyx TTS started:', callControlId);
-    return { success: true };
+
+    const options = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+    };
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(url, options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          try {
+            const response = JSON.parse(data);
+            console.log('Telnyx TTS started:', callControlId);
+            resolve({ success: true, data: response });
+          } catch (error) {
+            reject(new Error(`Failed to parse response: ${data}`));
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.error('Error speaking on Telnyx call:', error);
+        reject(error);
+      });
+
+      req.write(postData);
+      req.end();
+    });
   } catch (error) {
     console.error('Error speaking on Telnyx call:', error);
     throw error;
@@ -185,12 +424,47 @@ async function speakText(callControlId, text, voice = 'female', language = 'en-U
 async function sendDTMF(callControlId, digits) {
   ensureConfigured();
   try {
-    const call = new telnyx.Call({ call_control_id: callControlId });
-    await call.send_dtmf({
+    // Use REST API directly to send DTMF
+    const https = require('https');
+    const url = `https://api.telnyx.com/v2/calls/${callControlId}/actions/send_dtmf`;
+
+    const postData = JSON.stringify({
       digits,
     });
-    console.log('Telnyx DTMF sent:', callControlId, digits);
-    return { success: true };
+
+    const options = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+    };
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(url, options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          try {
+            const response = JSON.parse(data);
+            console.log('Telnyx DTMF sent:', callControlId, digits);
+            resolve({ success: true, data: response });
+          } catch (error) {
+            reject(new Error(`Failed to parse response: ${data}`));
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.error('Error sending DTMF on Telnyx call:', error);
+        reject(error);
+      });
+
+      req.write(postData);
+      req.end();
+    });
   } catch (error) {
     console.error('Error sending DTMF on Telnyx call:', error);
     throw error;

@@ -230,35 +230,99 @@ const generateResponse = async (req, res) => {
         conversation.messages.map((m, i) => `${m.role === 'user' ? 'THEM' : 'YOU'}: ${m.content}`).join('\n')
       : '';
     
-    // Build messages array with full conversation history - EXTREME DIFFICULTY MODE
+    // Track exchange number to force conclusions after 2-3 objections
+    const exchangeNumber = Math.ceil(conversation.messages.length / 2);
+    const isNearEnd = exchangeNumber >= 3; // After 3 exchanges, must conclude
+    const isFinalExchange = exchangeNumber >= 4; // Exchange 4+ = MUST give final decision
+    
+    // Build messages array with full conversation history - EXTREME DIFFICULTY MODE WITH FORCED CONCLUSIONS
     const messages = [
       {
         role: 'system',
         content: systemPrompt + 
-          `\n\n=== CRITICAL RULES - MAXIMUM DIFFICULTY ===
-1. This is message #${Math.ceil(conversation.messages.length / 2)} - ONGOING conversation, you REMEMBER everything
-2. You are EXTREMELY skeptical, busy, and have been burned before
-3. Challenge EVERY claim they make - demand proof, specifics, case studies
-4. Interrupt if they ramble or use vague language - call it out immediately
-5. You've heard "hundreds" of pitches - nothing impresses you easily
-6. TRUST NOTHING - you've been lied to before by salespeople
-7. If they can't answer a tough question, get MORE suspicious and dismissive
-8. Push back HARD on price - everything is "too expensive" until they prove ROI
-9. Bring up competitors and claim they're better/cheaper
-10. Your default is NO - they must EARN a yes through exceptional skill
-11. Cut them off if they sound scripted or use buzzwords - hate corporate speak
-12. Ask confrontational questions: "Why should I believe you?" "What's the catch?"
-13. If they dodge a question, call them out: "You didn't answer my question"
-14. Be impatient - you have 5 minutes MAX and you're watching the clock
-15. NEVER make it easy - even if interested, stay difficult and skeptical
+          `\n\n=== 🎯 CHALLENGE PROGRESSION SYSTEM ===
+ROLE & OBJECTIVE: You are realistically challenging sales callers while allowing skillful ones to successfully book a meeting if they handle objections well.
 
-=== YOUR PERSONALITY ===
-- Short temper, zero tolerance for BS
-- Burned by bad vendors before
-- Protective of budget and time
-- Expect to be disappointed
-- Will hang up if they waste your time
-- Respect ONLY data, proof, and directness
+OBJECTION PROGRESSION (Exchange #${exchangeNumber}):
+
+${exchangeNumber === 1 ? `
+📍 INITIAL RESISTANCE (Strong - 60% resistant)
+- Use one of: "We're not interested" / "Send me information" / "We already have a solution" / "Bad timing"
+- Be professional but guarded
+- Challenge their reason for calling
+` : ''}
+
+${exchangeNumber === 2 ? `
+📍 SECONDARY PUSHBACK (Moderate - 40% resistant)
+- Since they handled first objection, now ask: "How is this different?" / "What's the pricing?" / "We don't have budget" / "I need to think about it"
+- Show slight curiosity if they were good
+- Still skeptical but slightly more open
+` : ''}
+
+${exchangeNumber >= 3 ? `
+📍 FINAL CONSIDERATION (Soft - 10-20% resistant)
+- They've proven themselves through ${exchangeNumber} exchanges
+- Ask: "Let me check the calendar" / "What would we discuss?" / "How long is the call?"
+- Tone should be noticeably softer and cooperative
+- Prepare to book if they answer well
+` : ''}
+
+SUCCESS CRITERIA - Allow Booking When:
+✓ Caller acknowledges your objections without being pushy or dismissive
+✓ Caller provides specific, relevant value tailored to your concerns
+✓ Caller asks thoughtful questions rather than just pitching
+✓ Caller demonstrates ${Math.min(exchangeNumber, 3)} cycles of successful objection handling
+✓ Caller shows persistence without aggression
+
+${exchangeNumber >= 3 ? `
+🎉 BOOKING BEHAVIOR (Exchange ${exchangeNumber}):
+- Soften your tone noticeably
+- Say: "Okay, that actually sounds relevant. What times work for you?"
+- Offer 2-3 specific time slots (realistic business hours: Mon-Fri 9am-5pm)
+- Confirm booking with: name, date, time, and meeting type
+- Example: "Alright, let's do Tuesday at 2pm for a 15-minute intro call. I'll send you a calendar invite."
+` : ''}
+
+DO NOT:
+❌ Give endless objections (cap at 3-4 maximum)
+❌ Suddenly cave without the caller earning it
+❌ Book immediately without any resistance
+❌ Be rude beyond realistic skepticism
+
+TONE CALIBRATION:
+- Exchange 1: Professional but guarded (60% resistant)
+- Exchange 2: Cautiously curious if handled well (40% resistant)  
+- Exchange 3+: Cooperative and helpful once earned (10% resistant)
+
+=== CRITICAL RULES ===
+1. This is exchange #${exchangeNumber} - REMEMBER everything said
+2. Challenge EVERY claim they make - demand proof, specifics, case studies
+3. TRUST NOTHING initially - you've been burned before
+4. Your default is NO - they must EARN a yes through exceptional skill
+5. If they can't answer a tough question, get MORE suspicious
+6. Ask confrontational questions: "Why should I believe you?" "What's the catch?"
+7. If they dodge a question, call them out: "You didn't answer my question"
+8. Cut them off if they sound scripted or use corporate buzzwords
+
+${isFinalExchange ? `\n=== 🛑 FINAL EXCHANGE - MUST CONCLUDE NOW ===
+This is exchange #${exchangeNumber}. You have heard ENOUGH.
+You MUST give a FINAL DECISION in this response. NO more objections.
+
+ONLY TWO OUTCOMES:
+1. ✅ MEETING SET: "Alright, you've convinced me. Let's do Tuesday at 2pm for 15 minutes. I'll send a calendar invite to [their email]."
+2. ❌ FULL REJECTION: "I appreciate the call, but this isn't right for us. Thanks for your time, but I need to go." [END CALL]
+
+Decision criteria:
+- Did they handle objections professionally? ${exchangeNumber >= 2 ? 'YES/NO' : ''}
+- Did they prove value with specifics/data? ${exchangeNumber >= 2 ? 'YES/NO' : ''}
+- Did they earn your trust through persistence without pushiness? ${exchangeNumber >= 2 ? 'YES/NO' : ''}
+- Were they respectful of your time? ${exchangeNumber >= 2 ? 'YES/NO' : ''}
+
+If YES to most = MEETING SET (with specific time)
+If NO to most = FULL REJECTION (polite but firm)
+
+YOU MUST CONCLUDE NOW. NO MORE DELAYS.
+` : ''}
 
 ${conversationSummary}`
       },
@@ -275,7 +339,7 @@ ${conversationSummary}`
         model: 'gpt-4o-mini',
         messages: messages,
         temperature: 0.9,  // Higher for more aggressive, unpredictable responses
-        max_tokens: 80,  // Even shorter - busy, impatient people don't ramble
+        max_tokens: isFinalExchange ? 120 : 80,  // Allow more tokens for final decision statements
         presence_penalty: 1.0,  // Maximum - never repeat yourself
         frequency_penalty: 0.8  // High variety, unpredictable reactions
       })

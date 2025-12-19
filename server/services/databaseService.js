@@ -485,7 +485,7 @@ class DatabaseService {
    * Get all call logs (alias for getCallLogs with no filter)
    */
   async getAllCallLogs() {
-    return this.getCallLogs(null, 5000); // Increased limit to show more history
+    return this.getCallLogs(null, 500); // Reduced from 5000 to 500 for better performance
   }
 
   /**
@@ -574,10 +574,14 @@ class DatabaseService {
         }
       }
 
+      // Determine direction: if fromNumber is provided and different from phoneNumber, it's inbound
+      const direction = callData.direction || 
+        (fromNumber && fromNumber !== phoneNumber ? 'inbound' : 'outbound');
+
       const result = await pool.query(
         `INSERT INTO call_logs 
-         (prospect_id, caller_id, phone_number, from_number, outcome, duration, notes, recording_url, call_sid, end_reason, answered_by, prospect_name, ended_at, started_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+         (prospect_id, caller_id, phone_number, from_number, outcome, duration, notes, recording_url, call_sid, end_reason, answered_by, prospect_name, direction, ended_at, started_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
          RETURNING *`,
         [
           prospectId || null,
@@ -591,7 +595,8 @@ class DatabaseService {
           callSid || null,
           endReason || null,
           answeredBy || null,
-          prospectName || null
+          prospectName || null,
+          direction
         ]
       );
 

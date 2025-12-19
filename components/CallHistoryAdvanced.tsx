@@ -24,6 +24,7 @@ interface CallLog {
   endReason?: string;
   answeredBy?: string;
   recordingUrl?: string;
+  direction?: 'inbound' | 'outbound';
 }
 
 interface SavedView {
@@ -47,6 +48,7 @@ interface FilterState {
   durationMax: string;
   hasRecording: 'all' | 'yes' | 'no';
   answeredBy: string[];
+  direction: 'all' | 'inbound' | 'outbound';
 }
 
 // Orum-style Call Dispositions - matching PowerDialer
@@ -125,6 +127,7 @@ const CallHistoryAdvanced: React.FC = () => {
     durationMax: '',
     hasRecording: 'all',
     answeredBy: [],
+    direction: 'all',
   });
   const [showFilters, setShowFilters] = useState(true);
   
@@ -148,7 +151,7 @@ const CallHistoryAdvanced: React.FC = () => {
   
   // Pagination
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(100);
   
   // Recording menu state
   const [openRecordingMenu, setOpenRecordingMenu] = useState<string | null>(null);
@@ -168,7 +171,11 @@ const CallHistoryAdvanced: React.FC = () => {
       setLoading(true);
       setError(null);
       const logs = await backendAPI.getCallHistory();
-      setCallLogs(logs);
+      // Only set real data, never fake or static
+      const filteredLogs = Array.isArray(logs) ? logs.filter(l => l && l.id) : [];
+      console.log('📞 Loaded', filteredLogs.length, 'call logs');
+      console.log('📼 Calls with recordings:', filteredLogs.filter(l => l.recordingUrl).length);
+      setCallLogs(filteredLogs);
     } catch (err: any) {
       setError(err.message || 'Failed to load call history');
     } finally {
@@ -260,6 +267,11 @@ const CallHistoryAdvanced: React.FC = () => {
     // Answered by filter
     if (filters.answeredBy.length > 0) {
       result = result.filter(log => log.answeredBy && filters.answeredBy.includes(log.answeredBy));
+    }
+
+    // Direction filter
+    if (filters.direction !== 'all') {
+      result = result.filter(log => log.direction === filters.direction);
     }
 
     // Sort
@@ -600,139 +612,75 @@ const CallHistoryAdvanced: React.FC = () => {
         </div>
       </div>
 
-      {/* Filters Panel */}
+      {/* Filters Panel - Compact Design */}
       {showFilters && (
-        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-2 items-end">
             {/* Search */}
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Search</label>
+            <div className="lg:col-span-2">
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Search</label>
               <div className="relative">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   type="text"
                   value={filters.search}
                   onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
                   placeholder="Search prospects, notes..."
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full pl-7 pr-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
             </div>
 
             {/* Date From */}
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">From Date</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">From Date</label>
               <input
                 type="date"
                 value={filters.dateFrom}
                 onChange={(e) => setFilters(prev => ({ ...prev, dateFrom: e.target.value }))}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             {/* Date To */}
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">To Date</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">To Date</label>
               <input
                 type="date"
                 value={filters.dateTo}
                 onChange={(e) => setFilters(prev => ({ ...prev, dateTo: e.target.value }))}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
 
             {/* Duration Range */}
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Duration (min)</label>
-              <div className="flex gap-2">
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Duration (min)</label>
+              <div className="flex gap-1">
                 <input
                   type="number"
                   value={filters.durationMin}
                   onChange={(e) => setFilters(prev => ({ ...prev, durationMin: e.target.value }))}
                   placeholder="Min"
-                  className="w-1/2 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-1/2 px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
                 <input
                   type="number"
                   value={filters.durationMax}
                   onChange={(e) => setFilters(prev => ({ ...prev, durationMax: e.target.value }))}
                   placeholder="Max"
-                  className="w-1/2 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-1/2 px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
             </div>
-          </div>
 
-          {/* Outcome Filters */}
-          <div className="mt-4">
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Outcomes</label>
-            <div className="flex items-start gap-2">
-              <select
-                multiple
-                size={6}
-                value={filters.outcomes}
-                onChange={(e) => {
-                  const values = Array.from(e.target.selectedOptions).map(o => o.value);
-                  setFilters(prev => ({ ...prev, outcomes: values }));
-                }}
-                className="w-full max-w-md px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm overflow-y-auto"
-              >
-                {OUTCOMES.map(outcome => (
-                  <option key={outcome} value={outcome}>{outcome}</option>
-                ))}
-              </select>
-              <div className="flex flex-col gap-2">
-                <button
-                  onClick={() => setFilters(prev => ({ ...prev, outcomes: [] }))}
-                  className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 rounded text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600"
-                >
-                  Clear
-                </button>
-                <div className="text-xs text-gray-500 dark:text-gray-400">Hold Ctrl/Cmd to select multiple</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Agent Filter */}
-          {uniqueCallers.length > 0 && (
-            <div className="mt-4">
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Agents</label>
-              <div className="flex items-start gap-2">
-                <select
-                  multiple
-                  size={6}
-                  value={filters.callers}
-                  onChange={(e) => {
-                    const values = Array.from(e.target.selectedOptions).map(o => o.value);
-                    setFilters(prev => ({ ...prev, callers: values }));
-                  }}
-                  className="w-full max-w-md px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm overflow-y-auto"
-                >
-                  {uniqueCallers.map(caller => (
-                    <option key={caller} value={caller}>{caller}</option>
-                  ))}
-                </select>
-                <div className="flex flex-col gap-2">
-                  <button
-                    onClick={() => setFilters(prev => ({ ...prev, callers: [] }))}
-                    className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 rounded text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600"
-                  >
-                    Clear
-                  </button>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">Hold Ctrl/Cmd to select multiple</div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Recording & Reset */}
-          <div className="mt-4 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">Has Recording:</label>
+            {/* Has Recording */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Has Recording</label>
               <select
                 value={filters.hasRecording}
                 onChange={(e) => setFilters(prev => ({ ...prev, hasRecording: e.target.value as any }))}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="all">All</option>
                 <option value="yes">Yes</option>
@@ -740,12 +688,88 @@ const CallHistoryAdvanced: React.FC = () => {
               </select>
             </div>
 
+            {/* Direction */}
+            <div>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Direction</label>
+              <select
+                value={filters.direction}
+                onChange={(e) => setFilters(prev => ({ ...prev, direction: e.target.value as any }))}
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="all">All Calls</option>
+                <option value="inbound">Inbound</option>
+                <option value="outbound">Outbound</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Second Row - Outcome and Agents in horizontal layout */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+            {/* Outcome Filters */}
+            <div>
+              <div className="flex items-center justify-between mb-0.5">
+                <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Outcomes</label>
+                <button
+                  onClick={() => setFilters(prev => ({ ...prev, outcomes: [] }))}
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  Clear
+                </button>
+              </div>
+              <select
+                multiple
+                size={3}
+                value={filters.outcomes}
+                onChange={(e) => {
+                  const values = Array.from(e.target.selectedOptions).map(o => o.value);
+                  setFilters(prev => ({ ...prev, outcomes: values }));
+                }}
+                className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white overflow-y-auto"
+              >
+                {OUTCOMES.map(outcome => (
+                  <option key={outcome} value={outcome}>{outcome}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Agent Filter */}
+            {uniqueCallers.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-0.5">
+                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Agents</label>
+                  <button
+                    onClick={() => setFilters(prev => ({ ...prev, callers: [] }))}
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    Clear
+                  </button>
+                </div>
+                <select
+                  multiple
+                  size={3}
+                  value={filters.callers}
+                  onChange={(e) => {
+                    const values = Array.from(e.target.selectedOptions).map(o => o.value);
+                    setFilters(prev => ({ ...prev, callers: values }));
+                  }}
+                  className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white overflow-y-auto"
+                >
+                  {uniqueCallers.map(caller => (
+                    <option key={caller} value={caller}>{caller}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
+          {/* Reset button at bottom */}
+          <div className="mt-2 flex justify-end">
             <button
               onClick={resetFilters}
-              className="flex items-center gap-2 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition"
+              className="flex items-center gap-1 px-3 py-1 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition"
             >
-              <X size={16} />
-              Reset Filters
+              <X size={14} />
+              Reset All Filters
             </button>
           </div>
         </div>
@@ -812,7 +836,7 @@ const CallHistoryAdvanced: React.FC = () => {
         <table className="w-full">
           <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
             <tr>
-              <th className="px-4 py-3 w-12">
+              <th className="px-6 py-4 w-16">
                 <input
                   type="checkbox"
                   checked={selectedIds.size === paginatedLogs.length && paginatedLogs.length > 0}
@@ -823,7 +847,7 @@ const CallHistoryAdvanced: React.FC = () => {
                       setSelectedIds(new Set());
                     }
                   }}
-                  className="w-4 h-4 rounded"
+                  className="w-5 h-5 rounded"
                 />
               </th>
               {visibleColumns.map(colKey => {
@@ -833,13 +857,13 @@ const CallHistoryAdvanced: React.FC = () => {
                   <th
                     key={colKey}
                     onClick={() => handleSort(colKey)}
-                    className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+                    className="px-6 py-4 text-left text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                   >
                     <div className="flex items-center gap-2">
-                      <col.icon size={14} />
+                      <col.icon size={16} />
                       {col.label}
                       {sortBy === colKey && (
-                        sortOrder === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                        sortOrder === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />
                       )}
                     </div>
                   </th>
@@ -849,8 +873,8 @@ const CallHistoryAdvanced: React.FC = () => {
           </thead>
           <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700">
             {paginatedLogs.map(log => (
-              <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                <td className="px-4 py-3">
+              <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700">
+                <td className="px-6 py-4">
                   <input
                     type="checkbox"
                     checked={selectedIds.has(log.id)}
@@ -862,52 +886,52 @@ const CallHistoryAdvanced: React.FC = () => {
                         return next;
                       });
                     }}
-                    className="w-4 h-4 rounded"
+                    className="w-5 h-5 rounded"
                   />
                 </td>
                 {visibleColumns.map(colKey => {
                   switch (colKey) {
                     case 'timestamp':
                       return (
-                        <td key={colKey} className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                        <td key={colKey} className="px-6 py-4 text-base text-gray-700 dark:text-gray-200 whitespace-nowrap font-medium">
                           {new Date(log.timestamp).toLocaleString()}
                         </td>
                       );
                     case 'prospectName':
                       return (
-                        <td key={colKey} className="px-4 py-3">
-                          <span className="font-medium text-gray-900 dark:text-white">{log.prospectName}</span>
+                        <td key={colKey} className="px-6 py-4">
+                          <span className="text-base font-semibold text-gray-900 dark:text-white">{log.prospectName}</span>
                         </td>
                       );
                     case 'company':
                       return (
-                        <td key={colKey} className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                        <td key={colKey} className="px-6 py-4 text-base text-gray-700 dark:text-gray-200">
                           {log.company || '-'}
                         </td>
                       );
                     case 'phoneNumber':
                       return (
-                        <td key={colKey} className="px-4 py-3 text-sm font-mono text-gray-500 dark:text-gray-400">
+                        <td key={colKey} className="px-6 py-4 text-base font-mono text-gray-700 dark:text-gray-300 font-medium">
                           {log.phoneNumber}
                         </td>
                       );
                     case 'fromNumber':
                       return (
-                        <td key={colKey} className="px-4 py-3 text-sm font-mono text-gray-500 dark:text-gray-400">
+                        <td key={colKey} className="px-6 py-4 text-base font-mono text-gray-600 dark:text-gray-400">
                           {log.fromNumber || '-'}
                         </td>
                       );
                     case 'duration':
                       return (
-                        <td key={colKey} className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                        <td key={colKey} className="px-6 py-4 text-base font-semibold text-gray-800 dark:text-gray-100">
                           {formatDuration(log.duration)}
                         </td>
                       );
                     case 'outcome':
                       const badge = getOutcomeBadge(log.outcome);
                       return (
-                        <td key={colKey} className="px-4 py-3">
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${badge.bg} ${badge.text}`}>
+                        <td key={colKey} className="px-6 py-4">
+                          <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold ${badge.bg} ${badge.text}`}>
                             {badge.icon}
                             {log.outcome}
                           </span>
@@ -915,34 +939,34 @@ const CallHistoryAdvanced: React.FC = () => {
                       );
                     case 'callerName':
                       return (
-                        <td key={colKey} className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                        <td key={colKey} className="px-6 py-4 text-base text-gray-700 dark:text-gray-200 font-medium">
                           {log.callerName || '-'}
                         </td>
                       );
                     case 'answeredBy':
                       return (
-                        <td key={colKey} className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 capitalize">
+                        <td key={colKey} className="px-6 py-4 text-base text-gray-700 dark:text-gray-200 capitalize font-medium">
                           {log.answeredBy || '-'}
                         </td>
                       );
                     case 'endReason':
                       return (
-                        <td key={colKey} className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                        <td key={colKey} className="px-6 py-4 text-base text-gray-700 dark:text-gray-200">
                           {log.endReason || '-'}
                         </td>
                       );
                     case 'note':
                       return (
-                        <td key={colKey} className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 max-w-xs truncate">
+                        <td key={colKey} className="px-6 py-4 text-base text-gray-600 dark:text-gray-300 max-w-xs truncate">
                           {log.note || '-'}
                         </td>
                       );
                     case 'recording':
                       return (
-                        <td key={colKey} className="px-4 py-3">
-                          {log.recordingUrl ? (
+                        <td key={colKey} className="px-6 py-4">
+                          {log.recordingUrl && log.recordingUrl.trim() ? (
                             <div className="flex items-center gap-2">
-                              <audio controls src={`/api/calls/recording/${log.id}/stream`} className="h-8 w-32" />
+                              <audio controls src={log.recordingUrl} className="h-8 w-48" preload="metadata" />
                               <div className="relative">
                                 <button
                                   onClick={(e) => {
@@ -957,8 +981,8 @@ const CallHistoryAdvanced: React.FC = () => {
                                 {openRecordingMenu === log.id && (
                                   <div className="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 min-w-[140px] py-1">
                                     <a
-                                      href={`/api/calls/recording/${log.id}/download`}
-                                      download={`recording-${log.id}.mp3`}
+                                      href={log.recordingUrl}
+                                      download={`recording-${log.prospectName || log.phoneNumber}.mp3`}
                                       onClick={() => setOpenRecordingMenu(null)}
                                       className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                                     >
@@ -967,7 +991,7 @@ const CallHistoryAdvanced: React.FC = () => {
                                     </a>
                                     <button
                                       onClick={() => {
-                                        window.open(`/api/calls/recording/${log.id}/stream`, '_blank');
+                                        window.open(log.recordingUrl, '_blank');
                                         setOpenRecordingMenu(null);
                                       }}
                                       className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors w-full text-left"
@@ -980,7 +1004,7 @@ const CallHistoryAdvanced: React.FC = () => {
                               </div>
                             </div>
                           ) : (
-                            <span className="text-sm text-gray-400">-</span>
+                            <span className="text-sm text-gray-400 dark:text-gray-500">No recording</span>
                           )}
                         </td>
                       );
@@ -996,10 +1020,16 @@ const CallHistoryAdvanced: React.FC = () => {
         {paginatedLogs.length === 0 && (
           <div className="text-center py-12">
             <Phone size={48} className="mx-auto text-gray-300 dark:text-gray-600 mb-4" />
-            <p className="text-gray-500 dark:text-gray-400">No calls match your filters</p>
-            <button onClick={resetFilters} className="mt-2 text-blue-600 hover:underline text-sm">
-              Clear filters
-            </button>
+            <p className="text-gray-500 dark:text-gray-400">
+              {callLogs.length === 0
+                ? 'No calls have been made yet.'
+                : 'No calls match your filters'}
+            </p>
+            {callLogs.length > 0 && (
+              <button onClick={resetFilters} className="mt-2 text-blue-600 hover:underline text-sm">
+                Clear filters
+              </button>
+            )}
           </div>
         )}
       </div>

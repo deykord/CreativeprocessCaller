@@ -21,7 +21,8 @@ exports.getCallHistory = async (req, res) => {
         ? `${c.caller_first_name} ${c.caller_last_name}` 
         : null,
       recordingUrl: c.recording_url || null,
-      callSid: c.call_sid || null
+      callSid: c.call_sid || null,
+      direction: c.direction || 'outbound'
     }));
     res.json(formatted);
   } catch (error) {

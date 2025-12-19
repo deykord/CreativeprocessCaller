@@ -347,12 +347,42 @@ export const backendAPI = {
   },
 
   async endCall(callSid: string): Promise<{ callSid: string; status: string; endReason: string; duration: number }> {
-    const res = await fetch(`${API_BASE_URL}/voice/calls/${callSid}/end`, {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/telnyx/calls/${callSid}/end`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      }
     });
     if (!res.ok) {
       throw new Error(`Failed to end call: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  async getPendingInboundCalls(): Promise<{ success: boolean; calls: Array<{ callControlId: string; from: string; to: string; startTime: string }> }> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/telnyx/calls/inbound/pending`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to get pending inbound calls: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  async answerInboundCall(callControlId: string): Promise<{ success: boolean }> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}/telnyx/calls/${callControlId}/answer`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      }
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to answer inbound call: ${res.status}`);
     }
     return res.json();
   },

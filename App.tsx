@@ -18,6 +18,7 @@ import { LayoutGrid, Users, Phone, Settings as SettingsIcon, LogOut, Bell, Histo
 
 // SERVICES
 import { voiceService } from './services/VoiceService';
+import { telnyxService } from './services/TelnyxService';
 import { backendAPI } from './services/BackendAPI';
 import { standardizePhoneNumber } from './utils/phoneUtils';
 
@@ -26,6 +27,8 @@ const LeadListManager = React.lazy(() => import('./components/LeadListManager').
 const TeamManagement = React.lazy(() => import('./components/TeamManagement').then(m => ({ default: m.TeamManagement })));
 const Training = React.lazy(() => import('./components/Training'));
 const AdminDashboard = React.lazy(() => import('./components/AdminDashboard'));
+import IncomingCallNotification from './components/IncomingCallNotification';
+import { InboundCallActive } from './components/InboundCallActive';
 
 // Loading fallback component
 const LoadingSpinner = () => (
@@ -60,6 +63,7 @@ const Dashboard: React.FC = () => {
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
   const [openImportModal, setOpenImportModal] = useState(false);
   const [stuckCallError, setStuckCallError] = useState<string | null>(null);
+  const [activeInboundCall, setActiveInboundCall] = useState<{ callControlId: string; fromNumber: string; fromName?: string } | null>(null);
 
   // Listen for navigation events from PowerDialer
   useEffect(() => {
@@ -721,6 +725,48 @@ const Dashboard: React.FC = () => {
           </div>
         </main>
       </div>
+
+      {/* Global Incoming Call Notification */}
+      <IncomingCallNotification 
+        onCallAnswered={async (callControlId) => {
+          console.log('📞 Incoming call answered, establishing WebRTC audio:', callControlId);
+          
+          // Give the WebRTC client a moment to receive the transferred call
+          // The backend transfer happens first, then the WebRTC client receives the call
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          try {
+            // Now answer the call in the WebRTC client to establish audio
+            await telnyxService.answerIncomingCall(callControlId);
+            console.log('✅ WebRTC audio connection established');
+            
+            // Set active inbound call and show the active call UI
+            setActiveInboundCall({
+              callControlId,
+              fromNumber: 'Unknown',
+              fromName: 'Incoming Call'
+            });
+          } catch (error) {
+            console.error('❌ Failed to establish WebRTC audio:', error);
+            alert('Call answered on phone network, but WebRTC audio connection failed: ' + 
+                  (error instanceof Error ? error.message : 'Unknown error') + 
+                  '\n\nThe call may still be active on the phone network.');
+          }
+        }}
+      />
+
+      {/* Active Inbound Call UI */}
+      {activeInboundCall && (
+        <InboundCallActive
+          callControlId={activeInboundCall.callControlId}
+          fromNumber={activeInboundCall.fromNumber}
+          fromName={activeInboundCall.fromName}
+          onCallEnded={() => {
+            setActiveInboundCall(null);
+            setCurrentView('dashboard');
+          }}
+        />
+      )}
     </div>
   );
 };
