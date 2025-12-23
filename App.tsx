@@ -611,8 +611,10 @@ const Dashboard: React.FC = () => {
       <div className="flex h-screen bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-gray-100 font-sans transition-colors duration-200">
         <aside className="w-20 lg:w-64 bg-slate-900 dark:bg-slate-950 text-white flex flex-col flex-shrink-0 border-r border-slate-800 dark:border-slate-800 transition-all duration-300">
           <div className="p-6 flex items-center justify-center lg:justify-start border-b border-slate-800">
-            <img src="/favicon.svg" alt="CreativeCaller" className="w-9 h-9 rounded-xl shadow-lg" />
-            <span className="ml-3 font-bold text-lg hidden lg:block tracking-tight bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">CreativeCaller</span>
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg">
+              <PhoneCall size={20} className="text-white" />
+            </div>
+            <span className="ml-3 font-bold text-lg hidden lg:block tracking-tight bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">CreativeCaller</span>
           </div>
           
           <nav className="flex-1 py-6 space-y-2 px-3">
@@ -690,6 +692,9 @@ const Dashboard: React.FC = () => {
           </nav>
 
           <div className="p-4 border-t border-slate-800">
+            <div className="mb-3 text-center lg:text-left">
+              <span className="text-xs text-slate-500">v2.0.0</span>
+            </div>
             <button 
               onClick={handleLogout}
               className="flex items-center justify-center lg:justify-start w-full text-slate-400 hover:text-white transition"
