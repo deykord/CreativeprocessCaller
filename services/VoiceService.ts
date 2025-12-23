@@ -5,9 +5,13 @@
  * This allows easy switching between providers without changing the PowerDialer or other components
  */
 
+console.log('🔊 VoiceService module loading...');
+
 import { liveTwilioService, CallStateInfo as TwilioCallStateInfo } from './LiveTwilioService';
 import { telnyxService, TelnyxCallStateInfo, TelnyxCredentials } from './TelnyxService';
 import { CallState, CallEndReason } from '../types';
+
+console.log('🔊 VoiceService imports complete');
 
 export type VoiceProvider = 'twilio' | 'telnyx';
 
@@ -156,6 +160,36 @@ class UnifiedVoiceService {
       liveTwilioService.mute(shouldMute);
     } else {
       telnyxService.mute(shouldMute);
+    }
+  }
+
+  /**
+   * Toggle mute state
+   */
+  toggleMute(): boolean {
+    if (this.provider === 'twilio') {
+      // Twilio doesn't have toggleMute, so we track state ourselves
+      const currentState = (this as any)._isMuted || false;
+      (this as any)._isMuted = !currentState;
+      liveTwilioService.mute(!currentState);
+      return !currentState;
+    } else {
+      return telnyxService.toggleMute();
+    }
+  }
+
+  /**
+   * Toggle hold state
+   */
+  toggleHold(): boolean {
+    if (this.provider === 'twilio') {
+      // Twilio doesn't have toggleHold, so we track state ourselves
+      const currentState = (this as any)._isHeld || false;
+      (this as any)._isHeld = !currentState;
+      // Twilio hold would go here if implemented
+      return !currentState;
+    } else {
+      return telnyxService.toggleHold();
     }
   }
 

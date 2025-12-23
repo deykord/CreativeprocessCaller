@@ -1,3 +1,4 @@
+console.log('📱 App.tsx loading...');
 import React, { useState, useEffect, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { DashboardStats } from './components/DashboardStats';
@@ -15,11 +16,13 @@ import { INITIAL_PROSPECTS, INITIAL_STATS } from './constants';
 import { LayoutGrid, Users, Phone, LogOut, Bell, History, Zap, Keyboard, Sun, Moon, List, Activity, MessageSquare, GraduationCap, Shield, DollarSign, TrendingUp, Brain, PhoneCall, Sparkles } from 'lucide-react';
 
 // SERVICES
+console.log('📱 Importing voice services...');
 import { voiceService } from './services/VoiceService';
 import { telnyxService } from './services/TelnyxService';
 import { backendAPI } from './services/BackendAPI';
 import { standardizePhoneNumber } from './utils/phoneUtils';
 import { initializeTheme } from './utils/themeColors';
+console.log('📱 Voice services imported successfully');
 
 // Lazy load heavy components
 const LeadListManager = React.lazy(() => import('./components/LeadListManager').then(m => ({ default: m.LeadListManager })));

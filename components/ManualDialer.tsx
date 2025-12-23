@@ -3,6 +3,7 @@ import { Phone, Delete, Copy, RotateCcw, Check, Clock, User, Building, Mic, MicO
 import { voiceService } from '../services/VoiceService';
 import { backendAPI } from '../services/BackendAPI';
 import { standardizePhoneNumber, isValidE164 } from '../utils/phoneUtils';
+import { CallState } from '../types';
 
 interface Props {
   onCall: (phoneNumber: string) => void;
@@ -101,27 +102,66 @@ export const ManualDialer: React.FC<Props> = ({ onCall, disabled }) => {
   // Listen to voice service call state
   useEffect(() => {
     const unsubscribe = voiceService.registerStatusCallback((stateInfo) => {
-      // Update call status display
-      if (stateInfo.state === 'ringing') {
-        setCallStatus('Ringing...');
-        setIsInCall(true);
-      } else if (stateInfo.state === 'in-progress') {
-        setCallStatus('Connected');
-        setIsInCall(true);
-        if (!callStartTime) {
-          setCallStartTime(Date.now());
-        }
-      } else if (stateInfo.state === 'connecting') {
-        setCallStatus('Connecting...');
-        setIsInCall(true);
-      } else if (stateInfo.state === 'ended' || stateInfo.state === 'completed') {
-        setCallStatus('');
-        setIsInCall(false);
-        setIsMuted(false);
-        setIsHeld(false);
-        if (number) {
-          setShowOutcomeModal(true);
-        }
+      console.log('📱 ManualDialer received state:', stateInfo.state);
+      
+      // Update call status display based on CallState enum
+      switch (stateInfo.state) {
+        case CallState.DIALING:
+        case CallState.QUEUED:
+          setCallStatus('Connecting...');
+          setIsInCall(true);
+          break;
+        case CallState.RINGING:
+          setCallStatus('Ringing...');
+          setIsInCall(true);
+          break;
+        case CallState.CONNECTED:
+        case CallState.IN_PROGRESS:
+          setCallStatus('Connected');
+          setIsInCall(true);
+          if (!callStartTime) {
+            setCallStartTime(Date.now());
+          }
+          break;
+        case CallState.WRAP_UP:
+        case CallState.COMPLETED:
+          setCallStatus('Call Ended');
+          // Brief delay to show "Call Ended" status
+          setTimeout(() => {
+            setCallStatus('');
+            setIsInCall(false);
+            setIsMuted(false);
+            setIsHeld(false);
+            setCallStartTime(null);
+            setCallTimer(0);
+            if (number) {
+              setShowOutcomeModal(true);
+            }
+          }, 1000);
+          break;
+        case CallState.BUSY:
+          setCallStatus('Busy');
+          setIsInCall(false);
+          break;
+        case CallState.NO_ANSWER:
+          setCallStatus('No Answer');
+          setIsInCall(false);
+          break;
+        case CallState.FAILED:
+          setCallStatus('Failed');
+          setIsInCall(false);
+          break;
+        case CallState.CANCELED:
+          setCallStatus('Canceled');
+          setIsInCall(false);
+          break;
+        case CallState.IDLE:
+        default:
+          // Only clear if not in a call
+          if (!isInCall) {
+            setCallStatus('');
+          }
+          break;
       }
       
       if (stateInfo.callId && !currentCallSid) {
@@ -129,7 +169,7 @@ export const ManualDialer: React.FC<Props> = ({ onCall, disabled }) => {
       }
     });
     return () => unsubscribe();
-  }, [callStartTime, number, currentCallSid]);
+  }, [callStartTime, number, currentCallSid, isInCall]);
 
   const handleDigit = (digit: string) => {
     setNumber(prev => prev + digit);
@@ -267,14 +307,44 @@ export const ManualDialer: React.FC<Props> = ({ onCall, disabled }) => {
           </h2>
 
           {/* Call Status Banner with Controls */}
-          {isInCall && (
-            <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 border-l-4 border-green-500 rounded-lg">
+          {(isInCall || callStatus) && (
+            <div className={`mb-6 p-4 rounded-lg border-l-4 transition-all duration-300 ${
+              callStatus === 'Connecting...' 
+                ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-500' 
+              : callStatus === 'Ringing...'
+                ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-500'
+              : callStatus === 'Connected'
+                ? 'bg-green-50 dark:bg-green-900/20 border-green-500'
+              : callStatus === 'Call Ended'
+                ? 'bg-gray-50 dark:bg-gray-900/20 border-gray-500'
+              : callStatus === 'Busy' || callStatus === 'No Answer' || callStatus === 'Failed'
+                ? 'bg-red-50 dark:bg-red-900/20 border-red-500'
+              : 'bg-green-50 dark:bg-green-900/20 border-green-500'
+            }`}>
               <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
-                  <Clock className={callStatus === 'Connected' ? 'animate-pulse' : ''} size={20} />
-                  <span className="font-semibold">{callStatus || 'Call in Progress'}</span>
+                <div className={`flex items-center gap-2 ${
+                  callStatus === 'Connecting...' 
+                    ? 'text-blue-700 dark:text-blue-400' 
+                  : callStatus === 'Ringing...'
+                    ? 'text-yellow-700 dark:text-yellow-400'
+                  : callStatus === 'Connected'
+                    ? 'text-green-700 dark:text-green-400'
+                  : callStatus === 'Call Ended'
+                    ? 'text-gray-700 dark:text-gray-400'
+                  : callStatus === 'Busy' || callStatus === 'No Answer' || callStatus === 'Failed'
+                    ? 'text-red-700 dark:text-red-400'
+                  : 'text-green-700 dark:text-green-400'
+                }`}>
+                  <Clock className={callStatus === 'Connected' ? 'animate-pulse' : callStatus === 'Ringing...' ? 'animate-bounce' : ''} size={20} />
+                  <span className="font-semibold text-lg">{callStatus || 'Call in Progress'}</span>
                 </div>
-                <div className="text-2xl font-bold text-green-700 dark:text-green-400">
+                <div className={`text-2xl font-bold ${
+                  callStatus === 'Connecting...' 
+                    ? 'text-blue-700 dark:text-blue-400' 
+                  : callStatus === 'Ringing...'
+                    ? 'text-yellow-700 dark:text-yellow-400'
+                  : 'text-green-700 dark:text-green-400'
+                }`}>
                   {formatTime(callTimer)}
                 </div>
               </div>

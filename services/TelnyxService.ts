@@ -41,6 +41,7 @@ class TelnyxService {
   private isReady: boolean = false;
   private readyPromise: Promise<void> | null = null;
   private readyResolve: (() => void) | null = null;
+  private ringbackAudio: HTMLAudioElement | null = null;
 
   registerStatusCallback(cb: (stateInfo: TelnyxCallStateInfo) => void) {
     this.statusCallbacks.add(cb);
@@ -101,25 +102,6 @@ class TelnyxService {
         throw new Error('Telnyx credentials missing: login and password are required');
       }
 
-      // Request microphone and speaker permissions
-      console.log('Requesting audio permissions...');
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          },
-          video: false 
-        });
-        console.log('✓ Audio permissions granted');
-        // Stop the stream - we're just checking permissions, Telnyx will handle the actual stream
-        stream.getTracks().forEach(track => track.stop());
-      } catch (permErr) {
-        console.warn('⚠ Audio permission denied or unavailable:', permErr);
-        // Don't throw - try to proceed anyway
-      }
-
       // Create audio element for remote audio if it doesn't exist
       this.ensureAudioElement();
 
@@ -177,60 +159,84 @@ class TelnyxService {
       audioEl = document.createElement('audio');
       audioEl.id = 'telnyx-remote-audio';
       audioEl.autoplay = true;
-      audioEl.playsinline = true; // Important for iOS
-      audioEl.controls = false; // Hide controls
-      // Ensure audio will play
-      audioEl.style.display = 'none';
+      // Don't set muted - we want to hear the audio!
       document.body.appendChild(audioEl);
-      console.log('✓ Created Telnyx audio element - ready for remote audio');
-      
-      // Log when audio plays
-      audioEl.addEventListener('play', () => {
-        console.log('🔊 Remote audio is playing');
-      });
-      audioEl.addEventListener('pause', () => {
-        console.log('🔇 Remote audio paused');
-      });
-      audioEl.addEventListener('error', (e) => {
-        console.error('❌ Audio element error:', audioEl.error);
-      });
-    } else {
-      console.log('✓ Telnyx audio element already exists');
+      console.log('Created Telnyx audio element');
     }
   }
 
   /**
-   * Ensure audio is playing when call is connected
+   * Play local ringback tone when Telnyx doesn't provide early media
    */
-  private ensureAudioPlaying() {
+  private playRingbackTone() {
     if (typeof document === 'undefined') return;
     
-    const audioEl = document.getElementById('telnyx-remote-audio') as HTMLAudioElement;
-    if (audioEl) {
-      console.log('🔊 Checking audio element state...');
-      console.log('   - paused:', audioEl.paused);
-      console.log('   - muted:', audioEl.muted);
-      console.log('   - volume:', audioEl.volume);
-      console.log('   - srcObject:', audioEl.srcObject ? 'SET' : 'NOT SET');
+    // Stop any existing ringback
+    this.stopRingbackTone();
+    
+    // Create ringback audio using AudioContext for reliable browser playback
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       
-      // Make sure audio is not muted
-      audioEl.muted = false;
-      audioEl.volume = 1.0;
+      // Generate ringback tone (US standard: 440Hz + 480Hz, 2s on, 4s off)
+      const createRingbackTone = () => {
+        const oscillator1 = audioContext.createOscillator();
+        const oscillator2 = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator1.frequency.value = 440;
+        oscillator2.frequency.value = 480;
+        
+        oscillator1.connect(gainNode);
+        oscillator2.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        gainNode.gain.value = 0.1; // Low volume
+        
+        oscillator1.start();
+        oscillator2.start();
+        
+        // Stop after 2 seconds
+        setTimeout(() => {
+          oscillator1.stop();
+          oscillator2.stop();
+        }, 2000);
+      };
       
-      // Try to play if paused
-      if (audioEl.paused && audioEl.srcObject) {
-        console.log('🔊 Audio was paused, attempting to play...');
-        audioEl.play().then(() => {
-          console.log('✓ Audio playback started successfully');
-        }).catch((err) => {
-          console.error('❌ Failed to play audio:', err);
-          // This often happens due to browser autoplay policy
-          console.log('💡 User may need to interact with the page to enable audio');
-        });
-      }
-    } else {
-      console.error('❌ Audio element not found!');
-      this.ensureAudioElement();
+      // Play immediately and then every 4 seconds
+      createRingbackTone();
+      const intervalId = setInterval(() => {
+        if (this.ringbackAudio) {
+          createRingbackTone();
+        } else {
+          clearInterval(intervalId);
+        }
+      }, 4000);
+      
+      // Store reference to stop later (using a marker audio element)
+      this.ringbackAudio = document.createElement('audio');
+      (this.ringbackAudio as any)._intervalId = intervalId;
+      (this.ringbackAudio as any)._audioContext = audioContext;
+      
+      console.log('🔔 Playing local ringback tone');
+    } catch (e) {
+      console.warn('Could not create ringback tone:', e);
+    }
+  }
+
+  /**
+   * Stop the local ringback tone
+   */
+  private stopRingbackTone() {
+    if (this.ringbackAudio) {
+      console.log('🔔 Stopping ringback tone');
+      const intervalId = (this.ringbackAudio as any)._intervalId;
+      const audioContext = (this.ringbackAudio as any)._audioContext;
+      
+      if (intervalId) clearInterval(intervalId);
+      if (audioContext) audioContext.close().catch(() => {});
+      
+      this.ringbackAudio = null;
     }
   }
 
@@ -272,16 +278,15 @@ class TelnyxService {
 
     // Handle notifications (call updates)
     this.client.on('telnyx.notification', (notification: INotification) => {
-      console.log('🔔 Telnyx notification:', notification.type);
+      console.log('Telnyx notification:', notification.type);
       
       // Handle call updates
       if (notification.type === 'callUpdate' && notification.call) {
-        console.log('📞 Call update - state:', notification.call.state);
         this.handleCallUpdate(notification.call);
       }
     });
 
-    // Handle incoming calls
+    // Handle incoming calls and ringing
     this.client.on('telnyx.socket.message', (message: any) => {
       console.log('📨 Telnyx socket message:', message);
       
@@ -290,11 +295,26 @@ class TelnyxService {
         console.log('📞 Incoming call detected!');
         // The call object will be available via notification events
       }
-    });
-
-    // Optional: Listen for audio stream events if available
-    this.client.on('telnyx.audioStream', (audioInfo: any) => {
-      console.log('🔊 Audio stream event:', audioInfo);
+      
+      // Handle ringing notification (early media / ringback)
+      if (message.method === 'telnyx_rtc.ringing') {
+        console.log('🔔 Telnyx ringing detected via socket message');
+        // Emit RINGING state
+        this.emitStatus(CallState.RINGING);
+        // Telnyx provides ringback via early media - no need for local tone
+        // Try to attach remote stream for ringback audio
+        if (this.currentCall) {
+          this.tryAttachRemoteStream(this.currentCall);
+        }
+      }
+      
+      // Handle media event for stream updates
+      if (message.method === 'telnyx_rtc.media') {
+        console.log('🔊 Telnyx media event received');
+        if (this.currentCall) {
+          this.tryAttachRemoteStream(this.currentCall);
+        }
+      }
     });
   }
 
@@ -304,6 +324,8 @@ class TelnyxService {
    * @param fromNumber - The caller ID number (optional, uses default)
    */
   async connect(phoneNumber: string, fromNumber?: string): Promise<ICall> {
+    console.log('📞 TelnyxService.connect() called with:', { phoneNumber, fromNumber });
+    
     if (!this.client) {
       throw new Error('Telnyx client not initialized. Call initialize() first.');
     }
@@ -313,29 +335,51 @@ class TelnyxService {
 
     this.localDisconnect = false;
     this.callStartTime = null;
+    
+    // Format numbers for E.164
+    const formattedTo = phoneNumber.startsWith('+') ? phoneNumber : `+1${phoneNumber.replace(/\D/g, '')}`;
+    const formattedFrom = fromNumber?.startsWith('+') ? fromNumber : (fromNumber ? `+1${fromNumber.replace(/\D/g, '')}` : undefined);
+
+    console.log('🔍 Telnyx Client State BEFORE call:', {
+      connected: this.client.connected,
+      isReady: this.isReady,
+      login: this.credentials?.login,
+      callerIdNumber: this.credentials?.callerIdNumber,
+      formattedTo,
+      formattedFrom: formattedFrom || this.credentials?.callerIdNumber
+    });
+
     this.emitStatus(CallState.DIALING);
 
     try {
       const call = this.client.newCall({
-        destinationNumber: phoneNumber,
-        callerNumber: fromNumber || this.credentials?.callerIdNumber,
+        destinationNumber: formattedTo,
+        callerNumber: formattedFrom || this.credentials?.callerIdNumber,
         callerName: this.credentials?.callerIdName || 'Sales Agent',
         audio: true,
         video: false,
       });
 
+      console.log('✅ Telnyx Call Created:', {
+        id: call.id,
+        state: call.state,
+        direction: call.direction,
+        destinationNumber: formattedTo,
+        callerNumber: formattedFrom || this.credentials?.callerIdNumber
+      });
+
       this.currentCall = call;
       this.currentCallId = call.id;
       
-      // Listen to call-level state changes directly on the call object
-      call.on('stateChange', (state: { current: string }) => {
-        console.log('Telnyx call stateChange event:', state.current);
-        this.handleCallUpdate(call);
-      });
+      // Note: Telnyx SDK doesn't support call.on() - state changes come via telnyx.notification
 
       return call;
     } catch (err) {
-      console.error('Telnyx call connection failed:', err);
+      console.error('❌ Telnyx call connection failed:', err);
+      console.error('Error details:', {
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined
+      });
       this.emitStatus(CallState.WRAP_UP, { endReason: CallEndReason.FAILED });
       throw err;
     }
@@ -343,7 +387,14 @@ class TelnyxService {
 
   private handleCallUpdate(call: ICall) {
     const state = call.state;
-    console.log('Telnyx handleCallUpdate - raw state:', state, 'call.id:', call.id);
+    console.log('🔄 Telnyx handleCallUpdate - raw state:', state, 'call.id:', call.id);
+    console.log('🔍 Call object details:', {
+      id: call.id,
+      state: call.state,
+      direction: call.direction,
+      remoteCallerNumber: (call as any).remoteCallerNumber,
+      options: (call as any).options
+    });
 
     // Update current call reference
     this.currentCall = call;
@@ -368,20 +419,27 @@ class TelnyxService {
       case 'answering':
         console.log('Telnyx: Emitting RINGING for state:', state);
         this.emitStatus(CallState.RINGING);
+        // Try to attach remote stream for early media (ringback from Telnyx)
+        this.tryAttachRemoteStream(call);
+        // Note: Not playing local ringback - Telnyx provides early media
         break;
       case 'active':
         console.log('Telnyx: Emitting CONNECTED for state:', state);
+        // Stop ringback tone when call is answered
+        this.stopRingbackTone();
         if (!this.callStartTime) {
           this.callStartTime = new Date();
         }
-        // Ensure audio is playing when call is connected
-        this.ensureAudioPlaying();
         this.emitStatus(CallState.CONNECTED);
+        // Ensure remote stream is attached when call is active
+        this.tryAttachRemoteStream(call);
         break;
       case 'hangup':
       case 'destroy':
       case 'purge':
         console.log('🔴 Telnyx: Call ended with state:', state);
+        // Stop ringback tone if still playing
+        this.stopRingbackTone();
         console.log('🔴 Local disconnect:', this.localDisconnect);
         const endReason = this.localDisconnect
           ? CallEndReason.AGENT_HANGUP
@@ -473,6 +531,68 @@ class TelnyxService {
   }
 
   /**
+   * Try to attach the remote audio stream from the call
+   * According to Telnyx SDK docs, call.remoteStream provides the remote MediaStream
+   */
+  private tryAttachRemoteStream(call: ICall) {
+    try {
+      const audioEl = document.getElementById('telnyx-remote-audio') as HTMLAudioElement;
+      if (!audioEl) {
+        console.warn('🔊 Audio element not found');
+        return;
+      }
+
+      // First try: Use the SDK's remoteStream accessor (documented API)
+      const remoteStream = (call as any).remoteStream;
+      if (remoteStream && remoteStream instanceof MediaStream) {
+        console.log('🔊 Attaching call.remoteStream (SDK accessor)');
+        audioEl.srcObject = remoteStream;
+        audioEl.play().catch(e => console.warn('Audio autoplay blocked:', e));
+        
+        // Log track info
+        remoteStream.getTracks().forEach((track: MediaStreamTrack, i: number) => {
+          console.log(`🔊 Track ${i}: kind=${track.kind}, enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+        });
+        return;
+      }
+
+      // Fallback: Check if call has a peer connection with remote stream
+      const peer = (call as any).peer;
+      if (peer && peer.remoteStream) {
+        console.log('🔊 Attaching remote stream from call.peer.remoteStream');
+        audioEl.srcObject = peer.remoteStream;
+        audioEl.play().catch(e => console.warn('Audio play failed:', e));
+        return;
+      }
+
+      // Final fallback: Try to get stream from RTCPeerConnection receivers
+      if (peer && peer.instance) {
+        const receivers = peer.instance.getReceivers();
+        console.log('🔊 RTCPeerConnection receivers:', receivers.length);
+        
+        const audioReceivers = receivers.filter((r: RTCRtpReceiver) => r.track?.kind === 'audio');
+        if (audioReceivers.length > 0) {
+          const stream = new MediaStream(audioReceivers.map((r: RTCRtpReceiver) => r.track));
+          console.log('🔊 Created stream from audio receivers, tracks:', stream.getTracks().length);
+          audioEl.srcObject = stream;
+          audioEl.play().catch(e => console.warn('Audio play failed:', e));
+          
+          // Log track info
+          stream.getTracks().forEach((track, i) => {
+            console.log(`🔊 Track ${i}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+          });
+        } else {
+          console.log('🔊 No audio receivers found yet');
+        }
+      } else {
+        console.log('🔊 No peer connection available yet');
+      }
+    } catch (e) {
+      console.error('Error attaching remote stream:', e);
+    }
+  }
+
+  /**
    * Disconnect the current call
    */
   disconnect() {
@@ -502,6 +622,8 @@ class TelnyxService {
   /**
    * Mute/unmute the current call
    */
+  private isMuted: boolean = false;
+  
   mute(shouldMute: boolean) {
     if (this.currentCall) {
       if (shouldMute) {
@@ -509,12 +631,24 @@ class TelnyxService {
       } else {
         this.currentCall.unmuteAudio();
       }
+      this.isMuted = shouldMute;
     }
+  }
+
+  /**
+   * Toggle mute state
+   */
+  toggleMute(): boolean {
+    this.isMuted = !this.isMuted;
+    this.mute(this.isMuted);
+    return this.isMuted;
   }
 
   /**
    * Hold/unhold the current call
    */
+  private isHeld: boolean = false;
+
   hold(shouldHold: boolean) {
     if (this.currentCall) {
       if (shouldHold) {
@@ -522,7 +656,17 @@ class TelnyxService {
       } else {
         this.currentCall.unhold();
       }
+      this.isHeld = shouldHold;
     }
+  }
+
+  /**
+   * Toggle hold state
+   */
+  toggleHold(): boolean {
+    this.isHeld = !this.isHeld;
+    this.hold(this.isHeld);
+    return this.isHeld;
   }
 
   /**
