@@ -159,6 +159,7 @@ export const CallHistory: React.FC<Props> = React.memo(({ history }) => {
   return (
     <div className="max-w-5xl mx-auto p-6">
       <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Call History</h2>
+      
       {/* Recordings management panel */}
       <div className="mb-6 bg-white dark:bg-slate-800 rounded-lg p-4 border border-gray-200 dark:border-slate-700 shadow-sm">
         <div className="flex justify-between items-start mb-3">

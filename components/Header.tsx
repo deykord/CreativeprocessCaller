@@ -260,6 +260,9 @@ export const Header: React.FC<HeaderProps> = ({
                   Change Password
                 </button>
                 <div className="border-t border-gray-200 dark:border-slate-600 my-1"></div>
+                <div className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">
+                  Version 2.0.0
+                </div>
                 <button 
                   onClick={() => {
                     onLogout?.();

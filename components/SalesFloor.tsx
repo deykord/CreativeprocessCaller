@@ -59,11 +59,24 @@ export const SalesFloor: React.FC<Props> = ({ teamMembers = [] }) => {
   }, [autoRefresh]);
 
   // Enrich stats with user names
-  const enrichedStats = teamStats.map(stat => {
+  const enrichedStats = teamStats.map((stat: any) => {
+    // Use userName from backend if available (it already includes email fallback)
+    if (stat.userName && stat.userName !== '') {
+      return {
+        ...stat,
+        displayName: stat.userName
+      };
+    }
+    
+    // Otherwise try to match from teamMembers
     const user = teamMembers.find(m => m.id === stat.userId);
+    const displayName = user 
+      ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email 
+      : 'Unassigned';
+    
     return {
       ...stat,
-      userName: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : 'Unknown'
+      displayName
     };
   });
 
@@ -180,11 +193,11 @@ export const SalesFloor: React.FC<Props> = ({ teamMembers = [] }) => {
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
                         <span className="text-blue-600 dark:text-blue-400 font-semibold">
-                          {stat.userName.charAt(0).toUpperCase()}
+                          {stat.displayName.charAt(0).toUpperCase()}
                         </span>
                       </div>
                       <div>
-                        <p className="font-medium text-gray-900 dark:text-white">{stat.userName}</p>
+                        <p className="font-medium text-gray-900 dark:text-white">{stat.displayName}</p>
                         <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
                           <Clock className="w-3 h-3" />
                           {formatTime(stat.lastActivity)}
@@ -233,8 +246,14 @@ export const SalesFloor: React.FC<Props> = ({ teamMembers = [] }) => {
               <p className="text-gray-500 dark:text-gray-400 text-center py-8">No recent activity</p>
             ) : (
               recentActivity.map((log) => {
-                const user = teamMembers.find(m => m.id === log.userId);
-                const userName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : 'Unknown';
+                // Use backend userName if available, otherwise build from teamMembers
+                let userName = log.userId ? 'Unassigned' : 'System';
+                
+                if (log.userId) {
+                  // Try to use pre-populated user name from backend or teamMembers
+                  const user = teamMembers.find(m => m.id === log.userId);
+                  userName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : log.userId;
+                }
                 
                 return (
                   <div
