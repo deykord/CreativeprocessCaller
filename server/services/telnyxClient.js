@@ -45,7 +45,9 @@ async function makeCall(to, from, connectionId, webhookUrl) {
       from: from || config.telnyx?.callerId,
       webhook_url: webhookUrl || `${config.serverUrl}/api/telnyx/voice`,
       webhook_url_method: 'POST',
-      record: 'record-from-answer',
+      record: 'record-from-answer', // Auto-record all calls
+      record_format: 'mp3',
+      record_channels: 'dual',
     });
     
     console.log('Telnyx call initiated:', call.data.call_control_id);
@@ -221,6 +223,7 @@ async function startRecording(callControlId, channels = 'dual') {
     const postData = JSON.stringify({
       channels,
       format: 'mp3',
+      play_beep: false, // Don't play beep when recording starts
     });
 
     const options = {
@@ -581,6 +584,153 @@ async function getCallStatus(callControlId) {
   };
 }
 
+/**
+ * Send SMS message via Telnyx
+ * @param {string} to - Destination phone number (E.164 format)
+ * @param {string} from - Source phone number (must be your Telnyx number)
+ * @param {string} text - Message content
+ * @returns {Object} Message response with ID and status
+ */
+async function sendSMS(to, from, text) {
+  ensureConfigured();
+  try {
+    const response = await telnyx.messages.create({
+      from: from,
+      to: to,
+      text: text,
+      type: 'SMS',
+    });
+    
+    console.log('📱 SMS sent successfully:', {
+      messageId: response.data.id,
+      to: to,
+      from: from,
+      textPreview: text.substring(0, 50) + (text.length > 50 ? '...' : '')
+    });
+    
+    return {
+      success: true,
+      messageId: response.data.id,
+      to: response.data.to[0]?.phone_number || to,
+      from: response.data.from?.phone_number || from,
+      status: response.data.to[0]?.status || 'sent',
+    };
+  } catch (error) {
+    console.error('❌ Error sending SMS:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to send SMS',
+      details: error.raw?.errors || error,
+    };
+  }
+}
+
+/**
+ * Send SMS with personalization (replace placeholders)
+ * @param {string} to - Destination phone number
+ * @param {string} from - Source phone number
+ * @param {string} template - Message template with placeholders
+ * @param {Object} variables - Key-value pairs for replacement
+ */
+async function sendPersonalizedSMS(to, from, template, variables = {}) {
+  let personalizedText = template;
+  
+  // Replace placeholders like {{firstName}}, {{company}}, etc.
+  for (const [key, value] of Object.entries(variables)) {
+    const regex = new RegExp(`{{\\s*${key}\\s*}}`, 'gi');
+    personalizedText = personalizedText.replace(regex, value || '');
+  }
+  
+  // Clean up any remaining placeholders
+  personalizedText = personalizedText.replace(/{{[^}]+}}/g, '');
+  
+  return sendSMS(to, from, personalizedText);
+}
+
+/**
+ * Play audio file during call (for voicemail drop)
+ * @param {string} callControlId - The call control ID
+ * @param {string} audioUrl - URL to the audio file
+ */
+async function playAudioForVoicemailDrop(callControlId, audioUrl) {
+  ensureConfigured();
+  try {
+    const https = require('https');
+    const url = `https://api.telnyx.com/v2/calls/${callControlId}/actions/playback_start`;
+
+    const options = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+    };
+
+    const body = JSON.stringify({
+      audio_url: audioUrl,
+      overlay: false,
+      loop: 'single', // Play once then stop
+    });
+
+    return new Promise((resolve, reject) => {
+      const req = https.request(url, options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          try {
+            const response = JSON.parse(data);
+            console.log('🎵 Voicemail audio started:', callControlId);
+            resolve({ success: true, data: response });
+          } catch (error) {
+            reject(new Error(`Failed to parse response: ${data}`));
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        console.error('Error playing voicemail audio:', error);
+        reject(error);
+      });
+
+      req.write(body);
+      req.end();
+    });
+  } catch (error) {
+    console.error('Error in voicemail drop:', error);
+    throw error;
+  }
+}
+
+/**
+ * Detect voicemail machine (AMD - Answering Machine Detection)
+ * Note: This needs to be enabled on the call creation
+ * Returns true if answered by machine
+ */
+function isAnsweringMachine(webhookEvent) {
+  const eventType = webhookEvent?.data?.event_type;
+  const answeredBy = webhookEvent?.data?.payload?.answered_by;
+  
+  // Telnyx AMD events
+  if (eventType === 'call.machine.detection.ended') {
+    return answeredBy === 'machine' || answeredBy === 'machine_end_beep';
+  }
+  
+  // Also check for machine_end_beep specifically (good for voicemail drop)
+  if (answeredBy === 'machine_end_beep') {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Check if call detected voicemail beep (ready for voicemail drop)
+ */
+function isVoicemailBeepDetected(webhookEvent) {
+  const answeredBy = webhookEvent?.data?.payload?.answered_by;
+  return answeredBy === 'machine_end_beep' || answeredBy === 'machine_end_other';
+}
+
 module.exports = {
   telnyx,
   makeCall,
@@ -598,4 +748,10 @@ module.exports = {
   getSIPCredentials,
   getCallStatus,
   isConfigured,
+  // New SMS & Voicemail automation functions
+  sendSMS,
+  sendPersonalizedSMS,
+  playAudioForVoicemailDrop,
+  isAnsweringMachine,
+  isVoicemailBeepDetected,
 };

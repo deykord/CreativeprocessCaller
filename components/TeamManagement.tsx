@@ -21,7 +21,13 @@ interface TeamMember {
   createdAt: string;
 }
 
-export const TeamManagement: React.FC = () => {
+interface TeamManagementProps {
+  currentUser?: { id: string; role?: string } | null;
+}
+
+export const TeamManagement: React.FC<TeamManagementProps> = ({ currentUser }) => {
+  const isAdmin = currentUser?.role === 'admin';
+  
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -294,13 +300,15 @@ export const TeamManagement: React.FC = () => {
                       >
                         <Edit2 size={18} />
                       </button>
-                      <button
-                        onClick={() => handleDeleteUser(member.id)}
-                        className="p-2 text-red-600 hover:bg-red-100 dark:hover:bg-red-900 rounded-lg transition"
-                        title="Delete user"
-                      >
-                        <Trash2 size={18} />
-                      </button>
+                      {isAdmin && (
+                        <button
+                          onClick={() => handleDeleteUser(member.id)}
+                          className="p-2 text-red-600 hover:bg-red-100 dark:hover:bg-red-900 rounded-lg transition"
+                          title="Delete user"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      )}
                     </div>
                   </div>
 

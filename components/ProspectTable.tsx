@@ -3,7 +3,7 @@ import { Prospect } from '../types';
 import { 
   Phone, MoreHorizontal, MapPin, Upload, CheckCircle, XCircle, 
   Trash2, Edit2, Eye, X, Save, Calendar, Clock, User, Building,
-  Hash, FileText, Timer, Voicemail, PhoneMissed, RefreshCw, AlertTriangle
+  Hash, FileText, Timer, Voicemail, PhoneMissed, RefreshCw, AlertTriangle, Users
 } from 'lucide-react';
 import { backendAPI } from '../services/BackendAPI';
 
@@ -532,53 +532,63 @@ export const ProspectTable: React.FC<Props> = React.memo(({ prospects, onCall, o
   };
 
   return (
-    <div className="bg-white dark:bg-slate-800 shadow-sm border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden transition-colors duration-200">
-      <div className="p-5 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center flex-wrap gap-3">
-        <div className="flex items-center gap-4">
-          <h2 className="text-lg font-bold text-gray-800 dark:text-white">Priority Lists</h2>
-          <span className="text-xs font-medium px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full">{filteredProspects.length} leads</span>
-          {selectedProspectIds.size > 0 && (
-            <span className="text-xs font-medium px-2 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-full">{selectedProspectIds.size} selected</span>
-          )}
-        </div>
-        
-        <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${showFilters ? 'bg-indigo-600 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-slate-600'}`}
-          >
-            🔍 Filters {Object.values(filters).some(f => f) && `(${Object.values(filters).filter(f => f).length})`}
-          </button>
-          {selectedProspectIds.size > 0 && (
-            <>
-              <button
-                onClick={() => setShowBulkDeleteConfirm(true)}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition"
-              >
-                Delete Selected
-              </button>
-              <button
-                onClick={() => setSelectedProspectIds(new Set())}
-                className="px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-800 dark:text-white rounded-lg text-sm font-medium hover:bg-gray-400 dark:hover:bg-gray-500 transition"
-              >
-                Clear
-              </button>
-            </>
-          )}
-          <input 
-            type="file" 
-            accept=".csv" 
-            ref={fileInputRef} 
-            className="hidden" 
-            onChange={handleFileChange}
-          />
-          <button 
-            onClick={handleUploadClick}
-            className="flex items-center space-x-2 px-4 py-2 bg-white dark:bg-slate-700 border border-gray-300 dark:border-slate-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-600 transition shadow-sm"
-          >
-            <Upload size={16} />
-            <span>Import CSV</span>
-          </button>
+    <div className="bg-white dark:bg-slate-800 shadow-lg border border-gray-200 dark:border-slate-700 rounded-2xl overflow-hidden transition-colors duration-200">
+      {/* Enhanced Header with Gradient */}
+      <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-6">
+        <div className="flex justify-between items-center flex-wrap gap-3">
+          <div className="flex items-center gap-4">
+            <div className="p-2 bg-white/20 rounded-lg">
+              <Users size={24} className="text-white" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-white">Contact List</h2>
+              <div className="flex items-center gap-3 mt-1">
+                <span className="text-xs font-medium px-2 py-1 bg-white/20 text-white rounded-full">{filteredProspects.length} contacts</span>
+                {selectedProspectIds.size > 0 && (
+                  <span className="text-xs font-medium px-2 py-1 bg-amber-400/90 text-amber-900 rounded-full">{selectedProspectIds.size} selected</span>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 ${showFilters ? 'bg-white text-indigo-600' : 'bg-white/20 text-white hover:bg-white/30'}`}
+            >
+              🔍 Filters {Object.values(filters).some(f => f) && `(${Object.values(filters).filter(f => f).length})`}
+            </button>
+            {selectedProspectIds.size > 0 && (
+              <>
+                <button
+                  onClick={() => setShowBulkDeleteConfirm(true)}
+                  className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition shadow-md"
+                >
+                  Delete Selected
+                </button>
+                <button
+                  onClick={() => setSelectedProspectIds(new Set())}
+                  className="px-4 py-2 bg-white/20 text-white rounded-lg text-sm font-medium hover:bg-white/30 transition"
+                >
+                  Clear
+                </button>
+              </>
+            )}
+            <input 
+              type="file" 
+              accept=".csv" 
+              ref={fileInputRef} 
+              className="hidden" 
+              onChange={handleFileChange}
+            />
+            <button 
+              onClick={handleUploadClick}
+              className="flex items-center space-x-2 px-4 py-2 bg-white text-indigo-600 rounded-lg text-sm font-medium hover:bg-indigo-50 transition shadow-md"
+            >
+              <Upload size={16} />
+              <span>Import CSV</span>
+            </button>
+          </div>
         </div>
       </div>
 

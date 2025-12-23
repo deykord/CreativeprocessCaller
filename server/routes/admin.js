@@ -283,4 +283,32 @@ router.get('/training/scenarios', authMiddleware, requireAdmin, async (req, res)
   }
 });
 
+// GET /api/admin/call-costs - Get Telnyx call costs
+router.get('/call-costs', authMiddleware, requireAdmin, async (req, res) => {
+  const range = req.query.range || '30d';
+  const days = getDateIntervalDays(range);
+  
+  try {
+    const result = await pool.query(`
+      SELECT 
+        COUNT(*) as total_calls,
+        COALESCE(SUM(cost_usd), 0) as total_cost,
+        COALESCE(SUM(duration), 0) as total_seconds
+      FROM call_logs
+      WHERE started_at > NOW() - INTERVAL '${days} days'
+    `);
+
+    const data = result.rows[0];
+
+    res.json({
+      totalCalls: parseInt(data.total_calls) || 0,
+      totalCost: parseFloat(data.total_cost) || 0,
+      totalMinutes: (parseInt(data.total_seconds) || 0) / 60
+    });
+  } catch (error) {
+    console.error('Error fetching call costs:', error);
+    res.status(500).json({ error: 'Failed to fetch call costs' });
+  }
+});
+
 module.exports = router;

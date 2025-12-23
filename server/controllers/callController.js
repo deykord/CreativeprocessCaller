@@ -11,18 +11,22 @@ exports.getCallHistory = async (req, res) => {
         (c.prospect_first_name && c.prospect_last_name 
           ? `${c.prospect_first_name} ${c.prospect_last_name}`.trim() 
           : 'Unknown'),
+      company: c.company || '',
       phoneNumber: c.phone_number,
-      fromNumber: c.from_number,
-      outcome: c.outcome,
+      fromNumber: c.from_number || '',
+      outcome: c.outcome || 'No Answer',
       duration: c.duration || 0,
       note: c.notes || '',
       timestamp: c.started_at,
       callerName: c.caller_first_name && c.caller_last_name 
-        ? `${c.caller_first_name} ${c.caller_last_name}` 
-        : null,
+        ? `${c.caller_first_name} ${c.caller_last_name}`.trim() 
+        : '',
       recordingUrl: c.recording_url || null,
       callSid: c.call_sid || null,
-      direction: c.direction || 'outbound'
+      direction: c.direction || 'outbound',
+      answeredBy: c.answered_by || '',
+      endReason: c.end_reason || '',
+      costUsd: c.cost_usd ? parseFloat(c.cost_usd) : 0
     }));
     res.json(formatted);
   } catch (error) {
@@ -34,14 +38,36 @@ exports.getCallHistory = async (req, res) => {
 exports.logCall = async (req, res) => {
   try {
     const userId = req.userId; // From auth middleware
-    const { prospectId, prospectName, phoneNumber, fromNumber, outcome, duration, note, notes, callSid, endReason, answeredBy } = req.body;
+    const { prospectId, prospectName, phoneNumber, fromNumber, outcome, duration, note, notes, callSid, endReason, answeredBy, direction } = req.body;
     
-    console.log(`logCall - userId from auth: ${userId}, phoneNumber: ${phoneNumber}, outcome: ${outcome}`);
+    console.log(`logCall - userId from auth: ${userId}, phoneNumber: ${phoneNumber}, outcome: ${outcome}, callSid: ${callSid}, direction: ${direction || 'auto'}`);
     
-    // Check if there's a pending recording for this call
+    // Auto-lookup prospect by phone number if prospectId not provided
+    let actualProspectId = prospectId;
+    if (!actualProspectId && phoneNumber) {
+      const foundProspect = await dbService.findProspectByPhone(phoneNumber);
+      if (foundProspect) {
+        actualProspectId = foundProspect.id;
+        console.log(`✓ Auto-matched prospect ${foundProspect.first_name} ${foundProspect.last_name} (${actualProspectId}) by phone: ${phoneNumber}`);
+      }
+    }
+    
+    // Check if there's a pending recording for this call from EITHER Twilio or Telnyx
     let recordingUrl = null;
     if (callSid) {
+      // First check Twilio pending recordings
       recordingUrl = exports.getPendingRecording(callSid);
+      
+      // If not found, check Telnyx pending recordings
+      if (!recordingUrl) {
+        try {
+          const telnyxController = require('./telnyxController');
+          recordingUrl = telnyxController.getPendingRecording(callSid);
+        } catch (e) {
+          console.log('Could not check Telnyx pending recordings:', e.message);
+        }
+      }
+      
       if (recordingUrl) {
         console.log(`Found pending recording for call ${callSid}: ${recordingUrl}`);
       }
@@ -49,7 +75,7 @@ exports.logCall = async (req, res) => {
     
     // Create call log entry in database
     const callLog = await dbService.createCallLog({
-      prospectId: prospectId || null,
+      prospectId: actualProspectId || null,
       callerId: userId,
       phoneNumber: phoneNumber,
       fromNumber: fromNumber,
@@ -60,13 +86,16 @@ exports.logCall = async (req, res) => {
       endReason: endReason || null,
       answeredBy: answeredBy || null,
       recordingUrl: recordingUrl,
-      prospectName: prospectName || null
+      prospectName: prospectName || null,
+      direction: direction || 'outbound'  // Default to outbound for manual/power dialer calls
     });
 
+    console.log(`✓ Call log created with ID: ${callLog.id}, prospectId: ${actualProspectId}, callSid: ${callSid}, recordingUrl: ${recordingUrl ? 'present' : 'none'}`);
+
     // If prospect exists, update their last_call timestamp and status
-    if (prospectId) {
+    if (actualProspectId) {
       try {
-        await dbService.updateProspect(prospectId, { 
+        await dbService.updateProspect(actualProspectId, { 
           status: 'Contacted',
           lastCall: new Date().toISOString()
         }, userId);
@@ -80,16 +109,19 @@ exports.logCall = async (req, res) => {
       id: callLog.id,
       prospectId: callLog.prospect_id,
       prospectName: prospectName || 'Unknown',
+      company: '',
       phoneNumber: callLog.phone_number,
-      fromNumber: callLog.from_number,
-      outcome: callLog.outcome,
+      fromNumber: callLog.from_number || '',
+      outcome: callLog.outcome || 'No Answer',
       duration: callLog.duration || 0,
       note: callLog.notes || '',
       timestamp: callLog.started_at,
-      callSid: callLog.call_sid,
-      endReason: callLog.end_reason,
-      answeredBy: callLog.answered_by,
-      recordingUrl: callLog.recording_url
+      callSid: callLog.call_sid || null,
+      endReason: callLog.end_reason || '',
+      answeredBy: callLog.answered_by || '',
+      recordingUrl: callLog.recording_url || null,
+      direction: callLog.direction || 'outbound',
+      callerName: ''
     };
 
     res.json(formatted);
@@ -223,6 +255,29 @@ exports.deleteAllRecordings = async (req, res) => {
   } catch (error) {
     console.error('Failed to delete all recordings:', error);
     res.status(500).json({ error: 'Failed to delete all recordings' });
+  }
+};
+
+// Get fresh recording URL for a call log (useful for expired Twilio links)
+exports.getFreshRecordingUrl = async (req, res) => {
+  try {
+    const { callLogId } = req.params;
+    const calls = await dbService.getAllCallLogs();
+    const call = calls.find(c => c.id === parseInt(callLogId) || c.call_sid === callLogId);
+    
+    if (!call) {
+      return res.status(404).json({ error: 'Call log not found' });
+    }
+    
+    if (!call.recording_url) {
+      return res.status(404).json({ error: 'No recording for this call' });
+    }
+    
+    // Return the existing URL (for Telnyx URLs which don't expire like Twilio)
+    res.json({ url: call.recording_url });
+  } catch (error) {
+    console.error('Failed to get fresh recording URL:', error);
+    res.status(500).json({ error: 'Failed to get recording URL' });
   }
 };
 

@@ -2,10 +2,8 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { DashboardStats } from './components/DashboardStats';
 import { ProspectTable } from './components/ProspectTable';
-import { ActiveCallInterface } from './components/ActiveCallInterface';
 import { ManualDialer } from './components/ManualDialer';
 import PowerDialer from './components/PowerDialer';
-import { Settings } from './components/Settings';
 import CallHistoryAdvanced from './components/CallHistoryAdvanced';
 import { Header } from './components/Header';
 import { Login } from './components/Login';
@@ -14,19 +12,21 @@ import { SalesFloor } from './components/SalesFloor';
 import Messages from './components/Messages';
 import { Prospect, CallState, AgentStats, CallLog, User, TwilioPhoneNumber } from './types';
 import { INITIAL_PROSPECTS, INITIAL_STATS } from './constants';
-import { LayoutGrid, Users, Phone, Settings as SettingsIcon, LogOut, Bell, History, Zap, Keyboard, Sun, Moon, List, Activity, MessageSquare, GraduationCap, Shield } from 'lucide-react';
+import { LayoutGrid, Users, Phone, LogOut, Bell, History, Zap, Keyboard, Sun, Moon, List, Activity, MessageSquare, GraduationCap, Shield, DollarSign, TrendingUp, Brain, PhoneCall, Sparkles } from 'lucide-react';
 
 // SERVICES
 import { voiceService } from './services/VoiceService';
 import { telnyxService } from './services/TelnyxService';
 import { backendAPI } from './services/BackendAPI';
 import { standardizePhoneNumber } from './utils/phoneUtils';
+import { initializeTheme } from './utils/themeColors';
 
 // Lazy load heavy components
 const LeadListManager = React.lazy(() => import('./components/LeadListManager').then(m => ({ default: m.LeadListManager })));
 const TeamManagement = React.lazy(() => import('./components/TeamManagement').then(m => ({ default: m.TeamManagement })));
 const Training = React.lazy(() => import('./components/Training'));
 const AdminDashboard = React.lazy(() => import('./components/AdminDashboard'));
+const AutomationSettings = React.lazy(() => import('./components/AutomationSettings'));
 import IncomingCallNotification from './components/IncomingCallNotification';
 import { InboundCallActive } from './components/InboundCallActive';
 
@@ -42,7 +42,7 @@ const USE_BACKEND = true;
 const activeVoiceService = voiceService;
 
 
-type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'history' | 'settings' | 'team-management' | 'profile' | 'lead-lists' | 'sales-floor' | 'messages' | 'training' | 'admin-dashboard';
+type View = 'dashboard' | 'prospects' | 'power-dialer' | 'manual-dialer' | 'history' | 'team-management' | 'profile' | 'lead-lists' | 'sales-floor' | 'messages' | 'training' | 'admin-dashboard' | 'automation';
 
 const Dashboard: React.FC = () => {
     const [powerDialerDispositionSaved, setPowerDialerDispositionSaved] = useState(false);
@@ -56,17 +56,22 @@ const Dashboard: React.FC = () => {
   const [callerId, setCallerId] = useState<string | null>(null);
   const [callHistory, setCallHistory] = useState<CallLog[]>([]);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [isTwilioReady, setIsTwilioReady] = useState(false);
-  const [twilioError, setTwilioError] = useState<string | null>(null);
+  const [isVoiceReady, setIsVoiceReady] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [voiceProvider, setVoiceProvider] = useState<'twilio' | 'telnyx'>('twilio');
   const [user, setUser] = useState<User | null>(null);
   const [twilioNumbers, setTwilioNumbers] = useState<TwilioPhoneNumber[]>([]);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
   const [openImportModal, setOpenImportModal] = useState(false);
   const [stuckCallError, setStuckCallError] = useState<string | null>(null);
   const [activeInboundCall, setActiveInboundCall] = useState<{ callControlId: string; fromNumber: string; fromName?: string } | null>(null);
+  const [adminSection, setAdminSection] = useState<'home' | 'costs' | 'performance' | 'training-settings' | 'team' | 'telnyx'>('home');
 
   // Listen for navigation events from PowerDialer
   useEffect(() => {
+    // Initialize theme colors on app load
+    initializeTheme();
+    
     const handleNavigate = (e: CustomEvent) => {
       if (e.detail === 'lead-lists') {
         setCurrentView('lead-lists');
@@ -121,6 +126,7 @@ const Dashboard: React.FC = () => {
           if (voiceConfig.provider === 'telnyx' && voiceConfig.telnyx) {
             // Initialize Telnyx with SIP credentials
             console.log('🔊 Initializing TELNYX voice service (not Twilio)...');
+            setVoiceProvider('telnyx');
             setCallerId(voiceConfig.telnyx.callerId);
             
             try {
@@ -134,13 +140,17 @@ const Dashboard: React.FC = () => {
               });
               console.log('✅ TELNYX initialized successfully - Twilio will NOT be used');
               console.log('✅ Telnyx ready for calls');
+              setIsVoiceReady(true);
+              setVoiceError(null);
             } catch (telnyxErr) {
               console.error('❌ Telnyx initialization failed:', telnyxErr);
-              throw new Error(`Telnyx initialization failed: ${telnyxErr instanceof Error ? telnyxErr.message : 'Unknown error'}`);
+              setIsVoiceReady(false);
+              setVoiceError(`Telnyx initialization failed: ${telnyxErr instanceof Error ? telnyxErr.message : 'Unknown error'}`);
             }
           } else {
             // Initialize Twilio (default)
             console.warn('⚠️ Falling back to Twilio (this should not happen if Telnyx is configured)');
+            setVoiceProvider('twilio');
             // Fetch available Twilio numbers and set first one as default
             try {
               const twilioNumbersList = await backendAPI.getTwilioNumbers();
@@ -162,6 +172,8 @@ const Dashboard: React.FC = () => {
 
             const token = await backendAPI.getToken('agent_1');
             await activeVoiceService.initialize({ provider: 'twilio', twilio: { token } });
+            setIsVoiceReady(true);
+            setVoiceError(null);
           }
         } else {
           activeVoiceService.initialize({ provider: 'twilio', twilio: { token: 'mock-token' } });
@@ -182,20 +194,22 @@ const Dashboard: React.FC = () => {
           }
         });
         console.log('✅ Voice service ready (provider: ' + (await backendAPI.getVoiceConfig()).provider + ')');
-        setIsTwilioReady(true);
-        setTwilioError(null);
+        if (!isVoiceReady) {
+          setIsVoiceReady(true);
+          setVoiceError(null);
+        }
       } catch (err) {
         console.error("❌ Voice service initialization failed:", err);
-        setIsTwilioReady(false);
-        setTwilioError("Voice service initialization failed. Please refresh or contact support.");
+        setIsVoiceReady(false);
+        setVoiceError("Voice service initialization failed. Please refresh or contact support.");
       }
     };
     initSystem();
   }, []);
 
   const handleCall = async (prospect: Prospect) => {
-    if (!isTwilioReady) {
-      alert("Twilio is not ready. Please wait for initialization.");
+    if (!isVoiceReady) {
+      alert(`${voiceProvider === 'telnyx' ? 'Telnyx' : 'Twilio'} is not ready. Please wait for initialization.`);
       return;
     }
     try {
@@ -260,8 +274,8 @@ const Dashboard: React.FC = () => {
   };
 
   const handleManualCall = async (phoneNumber: string) => {
-    if (!isTwilioReady) {
-      alert("Twilio is not ready. Please wait for initialization.");
+    if (!isVoiceReady) {
+      alert(`${voiceProvider === 'telnyx' ? 'Telnyx' : 'Twilio'} is not ready. Please wait for initialization.`);
       return;
     }
     // Standardize phone number to E.164 format
@@ -456,7 +470,7 @@ const Dashboard: React.FC = () => {
     setProspects([]);
     setCallHistory([]);
     setUser(null);
-    setIsTwilioReady(false);
+    setIsVoiceReady(false);
     setPowerDialerDispositionSaved(false);
     setPowerDialerPausedByWrapUp(false);
     
@@ -519,7 +533,7 @@ const Dashboard: React.FC = () => {
             key={user?.id || 'no-user'}  // Force remount when user changes
             queue={powerDialerQueue} 
             onCall={handleCall} 
-            disabled={!isTwilioReady} 
+            disabled={!isVoiceReady} 
             dispositionSaved={powerDialerDispositionSaved}
             setDispositionSaved={setPowerDialerDispositionSaved}
             onDeleteProspect={handleDeleteProspect}
@@ -531,18 +545,11 @@ const Dashboard: React.FC = () => {
             currentUser={user}
           />;
       case 'manual-dialer':
-        return <ManualDialer onCall={handleManualCall} disabled={!isTwilioReady} />;
+        return <ManualDialer onCall={handleManualCall} disabled={!isVoiceReady} />;
       case 'history':
-        return <CallHistoryAdvanced />;
-      case 'settings':
-        return (
-          <Settings 
-            currentCallerId={callerId} 
-            onSetCallerId={setCallerId} 
-          />
-        );
+        return <CallHistoryAdvanced currentUser={user} />;
       case 'team-management':
-        return <Suspense fallback={<LoadingSpinner />}><TeamManagement /></Suspense>;
+        return <Suspense fallback={<LoadingSpinner />}><TeamManagement currentUser={user} /></Suspense>;
       case 'profile':
         return user ? (
           <UserProfile 
@@ -558,6 +565,7 @@ const Dashboard: React.FC = () => {
             teamMembers={teamMembers} 
             openImportModal={openImportModal}
             onImportModalClose={() => setOpenImportModal(false)}
+            currentUser={user}
           />
         </Suspense>;
       case 'sales-floor':
@@ -566,8 +574,10 @@ const Dashboard: React.FC = () => {
         return <Messages currentUser={user} />;
       case 'training':
         return <Suspense fallback={<LoadingSpinner />}><Training /></Suspense>;
+      case 'automation':
+        return <Suspense fallback={<LoadingSpinner />}><AutomationSettings currentUser={user} /></Suspense>;
       case 'admin-dashboard':
-        return <Suspense fallback={<LoadingSpinner />}><AdminDashboard /></Suspense>;
+        return <Suspense fallback={<LoadingSpinner />}><AdminDashboard initialSection={adminSection} /></Suspense>;
       default:
         return <div>View not found</div>;
     }
@@ -575,9 +585,9 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className={`${isDarkMode ? 'dark' : ''} h-full`}>
-      {twilioError && (
+      {voiceError && (
         <div className="fixed top-0 left-0 w-full bg-red-600 text-white text-center py-2 z-50">
-          {twilioError}
+          {voiceError}
         </div>
       )}
       {stuckCallError && (
@@ -601,8 +611,8 @@ const Dashboard: React.FC = () => {
       <div className="flex h-screen bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-gray-100 font-sans transition-colors duration-200">
         <aside className="w-20 lg:w-64 bg-slate-900 dark:bg-slate-950 text-white flex flex-col flex-shrink-0 border-r border-slate-800 dark:border-slate-800 transition-all duration-300">
           <div className="p-6 flex items-center justify-center lg:justify-start border-b border-slate-800">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-xl text-white">C</div>
-            <span className="ml-3 font-bold text-lg hidden lg:block tracking-tight">Creativeprocess.io</span>
+            <img src="/favicon.svg" alt="CreativeCaller" className="w-9 h-9 rounded-xl shadow-lg" />
+            <span className="ml-3 font-bold text-lg hidden lg:block tracking-tight bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">CreativeCaller</span>
           </div>
           
           <nav className="flex-1 py-6 space-y-2 px-3">
@@ -614,7 +624,7 @@ const Dashboard: React.FC = () => {
             />
             <NavItem 
               icon={<Users size={20} />} 
-              label="Prospects" 
+              label="Contacts" 
               active={currentView === 'prospects'} 
               onClick={() => setCurrentView('prospects')} 
             />
@@ -655,16 +665,16 @@ const Dashboard: React.FC = () => {
               onClick={() => setCurrentView('messages')} 
             />
             <NavItem 
+              icon={<Sparkles size={20} />} 
+              label="Automation" 
+              active={currentView === 'automation'} 
+              onClick={() => setCurrentView('automation')} 
+            />
+            <NavItem 
               icon={<GraduationCap size={20} />} 
               label="Training" 
               active={currentView === 'training'} 
               onClick={() => setCurrentView('training')} 
-            />
-            <NavItem 
-              icon={<SettingsIcon size={20} />} 
-              label="Settings" 
-              active={currentView === 'settings'} 
-              onClick={() => setCurrentView('settings')} 
             />
             {user?.role === 'admin' && (
               <>
@@ -673,13 +683,7 @@ const Dashboard: React.FC = () => {
                   icon={<Shield size={20} />} 
                   label="Admin Dashboard" 
                   active={currentView === 'admin-dashboard'} 
-                  onClick={() => setCurrentView('admin-dashboard')} 
-                />
-                <NavItem 
-                  icon={<Users size={20} />} 
-                  label="Team Management" 
-                  active={currentView === 'team-management'} 
-                  onClick={() => setCurrentView('team-management')} 
+                  onClick={() => { setCurrentView('admin-dashboard'); setAdminSection('home'); }} 
                 />
               </>
             )}
@@ -698,25 +702,13 @@ const Dashboard: React.FC = () => {
 
         <main className="flex-1 flex flex-col overflow-hidden relative">
           <Header 
-            title={currentView.replace('-', ' ')}
+            title={currentView === 'prospects' ? 'Contacts' : currentView.replace('-', ' ')}
             user={user}
             isDarkMode={isDarkMode}
             onDarkModeToggle={() => setIsDarkMode(!isDarkMode)}
             onViewProfile={() => setCurrentView('profile')}
             onLogout={handleLogout}
           />
-
-          {/* Active Call Bar - Only show outside Power Dialer view (Power Dialer has inline call UI like Orum) */}
-          {currentCall && currentView !== 'power-dialer' && (
-            <ActiveCallInterface 
-              prospect={currentCall.prospect}
-              callState={currentCall.state}
-              onHangup={handleHangup}
-              onSaveDisposition={handleSaveDisposition}
-              powerDialerPaused={powerDialerPausedByWrapUp}
-              setPowerDialerPaused={setPowerDialerPausedByWrapUp}
-            />
-          )}
 
           <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50 dark:bg-slate-900 transition-colors duration-200">
             <div className="max-w-7xl mx-auto h-full">

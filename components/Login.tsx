@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { backendAPI } from '../services/BackendAPI';
+import { getRandomTheme, saveTheme } from '../utils/themeColors';
 import '../styles/Auth.css';
 
 interface LoginFormState {
@@ -42,6 +43,12 @@ export const Login: React.FC = () => {
       if (response.success) {
         localStorage.setItem('authToken', response.token);
         localStorage.setItem('user', JSON.stringify(response.user));
+        
+        // Set random theme color on login
+        const randomTheme = getRandomTheme();
+        saveTheme(randomTheme);
+        console.log('🎨 Theme set to:', randomTheme.name);
+        
         navigate('/');
       } else {
         setFormState(prev => ({
@@ -62,7 +69,19 @@ export const Login: React.FC = () => {
   return (
     <div className="auth-container">
       <div className="auth-card">
-        <h1>Login</h1>
+        {/* Logo and Branding */}
+        <div className="flex flex-col items-center mb-8">
+          <img src="/favicon.svg" alt="CreativeCaller" className="w-20 h-20 mb-4" />
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent mb-2">
+            CreativeCaller
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400 text-center text-sm">
+            AI-Powered Sales Dialer & Automation Platform
+          </p>
+        </div>
+
+        <h2 className="text-xl font-semibold text-gray-800 dark:text-white mb-6">Sign In</h2>
+        
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label htmlFor="email">Email</label>
@@ -104,7 +123,7 @@ export const Login: React.FC = () => {
         </form>
 
         <div className="auth-footer">
-          <p className="text-gray-500">Admin creates user accounts</p>
+          <p className="text-gray-500 dark:text-gray-400">Admin creates user accounts</p>
         </div>
       </div>
     </div>

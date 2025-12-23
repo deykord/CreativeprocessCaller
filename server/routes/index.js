@@ -15,6 +15,10 @@ const voicemailRoutes = require('./voicemails');
 const dashboardRoutes = require('./dashboard');
 const trainingRoutes = require('./training');
 const adminRoutes = require('./admin');
+const aiAgentSettingsRoutes = require('./aiAgentSettings');
+const elevenlabsRoutes = require('./elevenlabs');
+const telnyxAdminRoutes = require('./telnyxAdmin');
+const automationRoutes = require('./automation');
 
 router.use('/auth', authRoutes);
 router.use('/token', tokenRoutes);
@@ -33,6 +37,10 @@ router.use('/voicemails', voicemailRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/training', trainingRoutes);
 router.use('/admin', adminRoutes);
+router.use('/ai-settings', aiAgentSettingsRoutes);
+router.use('/elevenlabs', elevenlabsRoutes);
+router.use('/telnyx-admin', telnyxAdminRoutes);
+router.use('/automation', automationRoutes);
 
 // Alias for recordings upload (frontend posts to /api/recordings/upload)
 router.post('/recordings/upload', require('../controllers/callController').uploadRecording);

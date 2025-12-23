@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { User, WorkHours, Message } from '../types';
-import { ArrowLeft, Upload, Send, MessageSquare, Clock, Mail, User as UserIcon } from 'lucide-react';
+import { ArrowLeft, Upload, Send, MessageSquare, Clock, Mail, User as UserIcon, Palette, Check, Save, X, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { backendAPI } from '../services/BackendAPI';
+import { themeColors, loadTheme, saveTheme, ThemeColor, applyTheme } from '../utils/themeColors';
 
 interface UserProfileProps {
   user: User;
@@ -12,11 +13,13 @@ interface UserProfileProps {
 const UserProfile: React.FC<UserProfileProps> = ({ user, onBack, onUpdate }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'profile' | 'messages' | 'work-hours'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'messages' | 'work-hours' | 'appearance'>('profile');
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [selectedRecipient, setSelectedRecipient] = useState<string>('');
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
+  const [selectedTheme, setSelectedTheme] = useState<ThemeColor>(loadTheme());
+  const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const [formData, setFormData] = useState({
     firstName: user.firstName,
@@ -39,6 +42,12 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onBack, onUpdate }) => 
   );
 
   const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+
+  // Show notification
+  const showNotification = (type: 'success' | 'error', message: string) => {
+    setNotification({ type, message });
+    setTimeout(() => setNotification(null), 4000);
+  };
 
   useEffect(() => {
     if (activeTab === 'messages') {
@@ -107,9 +116,10 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onBack, onUpdate }) => 
       });
       onUpdate(updatedUser);
       setIsEditing(false);
-    } catch (err) {
+      showNotification('success', 'Profile updated successfully!');
+    } catch (err: any) {
       console.error('Failed to update profile:', err);
-      alert('Failed to update profile. Please try again.');
+      showNotification('error', err.message || 'Failed to update profile. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -135,21 +145,47 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onBack, onUpdate }) => 
     return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
   };
 
+  const handleThemeChange = (theme: ThemeColor) => {
+    setSelectedTheme(theme);
+    saveTheme(theme);
+    applyTheme(theme);
+    showNotification('success', `Theme changed to ${theme.name}`);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-900 p-6">
+      {/* Notification Toast */}
+      {notification && (
+        <div className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-6 py-4 rounded-xl shadow-2xl transition-all animate-in slide-in-from-top-5 ${
+          notification.type === 'success' 
+            ? 'bg-green-500 text-white' 
+            : 'bg-red-500 text-white'
+        }`}>
+          {notification.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
+          <span className="font-medium">{notification.message}</span>
+          <button onClick={() => setNotification(null)} className="ml-2 hover:opacity-80">
+            <X size={18} />
+          </button>
+        </div>
+      )}
+      
+      {/* Back Button - Enhanced */}
       <button 
         onClick={onBack}
-        className="flex items-center gap-2 text-blue-600 dark:text-blue-400 mb-6 hover:underline"
+        className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700 transition mb-6"
       >
-        <ArrowLeft size={20} /> Back
+        <ArrowLeft size={18} /> Back to Dashboard
       </button>
 
-      <div className="max-w-4xl mx-auto bg-white dark:bg-slate-800 rounded-lg shadow-md">
-        {/* Header Section */}
-        <div className="bg-gradient-to-r from-blue-500 to-blue-600 p-8 text-white rounded-t-lg">
+      <div className="max-w-4xl mx-auto bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-100 dark:border-slate-700 overflow-hidden">
+        {/* Header Section - Enhanced */}
+        <div 
+          className="p-8 text-white"
+          style={{ background: `linear-gradient(135deg, ${selectedTheme.primary} 0%, ${selectedTheme.primaryDark} 100%)` }}
+        >
           <div className="flex items-end gap-6">
             <div className="relative">
-              <div className="w-24 h-24 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-3xl font-bold text-blue-600 dark:text-blue-200 overflow-hidden border-4 border-white">
+              <div className="w-28 h-28 rounded-2xl bg-white/20 flex items-center justify-center text-3xl font-bold text-white overflow-hidden border-4 border-white/30 shadow-xl">
                 {formData.profilePicture ? (
                   <img src={formData.profilePicture} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
@@ -157,8 +193,11 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onBack, onUpdate }) => 
                 )}
               </div>
               {isEditing && (
-                <label className="absolute bottom-0 right-0 bg-white text-blue-600 p-2 rounded-full cursor-pointer hover:bg-gray-100">
-                  <Upload size={16} />
+                <label 
+                  className="absolute bottom-0 right-0 p-2.5 rounded-full cursor-pointer hover:scale-110 transition shadow-lg"
+                  style={{ backgroundColor: selectedTheme.primary }}
+                >
+                  <Upload size={16} className="text-white" />
                   <input 
                     type="file" 
                     accept="image/*" 
@@ -168,12 +207,19 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onBack, onUpdate }) => 
                 </label>
               )}
             </div>
-            <div>
+            <div className="flex-1">
               <h1 className="text-3xl font-bold">{formData.firstName} {formData.lastName}</h1>
-              <p className="text-blue-100 flex items-center gap-2 mt-2">
+              <p className="text-white/80 flex items-center gap-2 mt-2">
                 <Mail size={16} /> {formData.email}
               </p>
-              <p className="text-blue-100 mt-1">Role: <span className="font-semibold capitalize">{user.role || 'agent'}</span></p>
+              <div className="flex items-center gap-4 mt-3">
+                <span className="px-3 py-1 bg-white/20 rounded-full text-sm font-medium capitalize">
+                  {user.role || 'agent'}
+                </span>
+                <span className="px-3 py-1 bg-white/20 rounded-full text-sm font-medium">
+                  Theme: {selectedTheme.name}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -182,33 +228,47 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onBack, onUpdate }) => 
         <div className="border-b border-gray-200 dark:border-slate-700 flex gap-0">
           <button
             onClick={() => setActiveTab('profile')}
-            className={`flex-1 py-4 px-6 font-medium transition border-b-2 ${
+            className={`flex-1 py-4 px-6 font-medium transition-all border-b-2 flex items-center justify-center gap-2 ${
               activeTab === 'profile'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-800'
+                ? 'border-current bg-gray-50 dark:bg-slate-700/50'
+                : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700/30'
             }`}
+            style={activeTab === 'profile' ? { borderColor: selectedTheme.primary, color: selectedTheme.primary } : {}}
           >
-            <UserIcon size={16} className="inline mr-2" /> Profile Info
+            <UserIcon size={16} /> Profile Info
           </button>
           <button
             onClick={() => setActiveTab('work-hours')}
-            className={`flex-1 py-4 px-6 font-medium transition border-b-2 ${
+            className={`flex-1 py-4 px-6 font-medium transition-all border-b-2 flex items-center justify-center gap-2 ${
               activeTab === 'work-hours'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-800'
+                ? 'border-current bg-gray-50 dark:bg-slate-700/50'
+                : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700/30'
             }`}
+            style={activeTab === 'work-hours' ? { borderColor: selectedTheme.primary, color: selectedTheme.primary } : {}}
           >
-            <Clock size={16} className="inline mr-2" /> Work Hours
+            <Clock size={16} /> Work Hours
           </button>
           <button
             onClick={() => setActiveTab('messages')}
-            className={`flex-1 py-4 px-6 font-medium transition border-b-2 ${
+            className={`flex-1 py-4 px-6 font-medium transition-all border-b-2 flex items-center justify-center gap-2 ${
               activeTab === 'messages'
-                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
-                : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-800'
+                ? 'border-current bg-gray-50 dark:bg-slate-700/50'
+                : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700/30'
             }`}
+            style={activeTab === 'messages' ? { borderColor: selectedTheme.primary, color: selectedTheme.primary } : {}}
           >
-            <MessageSquare size={16} className="inline mr-2" /> Messages
+            <MessageSquare size={16} /> Messages
+          </button>
+          <button
+            onClick={() => setActiveTab('appearance')}
+            className={`flex-1 py-4 px-6 font-medium transition-all border-b-2 flex items-center justify-center gap-2 ${
+              activeTab === 'appearance'
+                ? 'border-current bg-gray-50 dark:bg-slate-700/50'
+                : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700/30'
+            }`}
+            style={activeTab === 'appearance' ? { borderColor: selectedTheme.primary, color: selectedTheme.primary } : {}}
+          >
+            <Palette size={16} /> Appearance
           </button>
         </div>
 
@@ -222,18 +282,19 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onBack, onUpdate }) => 
                 {!isEditing && (
                   <button
                     onClick={() => setIsEditing(true)}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                    className="px-5 py-2.5 text-white rounded-xl hover:opacity-90 transition shadow-lg font-medium flex items-center gap-2"
+                    style={{ backgroundColor: selectedTheme.primary }}
                   >
-                    Edit Profile
+                    <UserIcon size={16} /> Edit Profile
                   </button>
                 )}
               </div>
 
               {isEditing ? (
-                <div className="space-y-4">
+                <div className="space-y-5">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         First Name
                       </label>
                       <input
@@ -241,11 +302,12 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onBack, onUpdate }) => 
                         name="firstName"
                         value={formData.firstName}
                         onChange={handleInputChange}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 transition"
+                        style={{ '--tw-ring-color': selectedTheme.primary } as React.CSSProperties}
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Last Name
                       </label>
                       <input
@@ -253,7 +315,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onBack, onUpdate }) => 
                         name="lastName"
                         value={formData.lastName}
                         onChange={handleInputChange}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 transition"
+                        style={{ '--tw-ring-color': selectedTheme.primary } as React.CSSProperties}
                       />
                     </div>
                   </div>
@@ -281,16 +344,18 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onBack, onUpdate }) => 
                       onChange={handleInputChange}
                       placeholder="Tell us about yourself..."
                       rows={4}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 transition"
                     />
                   </div>
 
-                  <div className="flex gap-4 pt-4">
+                  <div className="flex gap-4 pt-6">
                     <button
                       onClick={handleSaveProfile}
                       disabled={loading}
-                      className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+                      className="px-6 py-2.5 text-white rounded-xl hover:opacity-90 transition shadow-lg font-medium flex items-center gap-2 disabled:opacity-50"
+                      style={{ backgroundColor: selectedTheme.primary }}
                     >
+                      {loading ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                       {loading ? 'Saving...' : 'Save Changes'}
                     </button>
                     <button
@@ -304,9 +369,9 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onBack, onUpdate }) => 
                           profilePicture: user.profilePicture || '',
                         });
                       }}
-                      className="px-6 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition"
+                      className="px-6 py-2.5 bg-gray-200 dark:bg-slate-600 text-gray-700 dark:text-gray-200 rounded-xl hover:bg-gray-300 dark:hover:bg-slate-500 transition font-medium flex items-center gap-2"
                     >
-                      Cancel
+                      <X size={16} /> Cancel
                     </button>
                   </div>
                 </div>
@@ -343,64 +408,92 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onBack, onUpdate }) => 
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Work Hours</h2>
                 {isEditing && (
-                  <button
-                    onClick={handleSaveProfile}
-                    disabled={loading}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50"
-                  >
-                    Save Changes
-                  </button>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleSaveProfile}
+                      disabled={loading}
+                      className="px-5 py-2.5 text-white rounded-xl hover:opacity-90 transition shadow-lg font-medium flex items-center gap-2 disabled:opacity-50"
+                      style={{ backgroundColor: selectedTheme.primary }}
+                    >
+                      {loading ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                      Save Changes
+                    </button>
+                    <button
+                      onClick={() => setIsEditing(false)}
+                      className="px-5 py-2.5 bg-gray-200 dark:bg-slate-600 text-gray-700 dark:text-gray-200 rounded-xl hover:bg-gray-300 dark:hover:bg-slate-500 transition font-medium flex items-center gap-2"
+                    >
+                      <X size={16} /> Cancel
+                    </button>
+                  </div>
                 )}
                 {!isEditing && (
                   <button
                     onClick={() => setIsEditing(true)}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                    className="px-5 py-2.5 text-white rounded-xl hover:opacity-90 transition shadow-lg font-medium flex items-center gap-2"
+                    style={{ backgroundColor: selectedTheme.primary }}
                   >
-                    Edit Work Hours
+                    <Clock size={16} /> Edit Work Hours
                   </button>
                 )}
               </div>
 
               <div className="space-y-3">
                 {days.map(day => (
-                  <div key={day} className="flex items-center gap-4 p-4 bg-gray-50 dark:bg-slate-700 rounded-lg">
-                    <div className="w-24">
-                      <p className="font-medium text-gray-900 dark:text-white capitalize">{day}</p>
+                  <div key={day} className="flex items-center gap-4 p-4 bg-gray-50 dark:bg-slate-700/50 rounded-xl border border-gray-100 dark:border-slate-600">
+                    <div className="w-28">
+                      <p className="font-semibold text-gray-900 dark:text-white capitalize">{day}</p>
                     </div>
                     {isEditing ? (
                       <div className="flex items-center gap-4 flex-1">
-                        <input
-                          type="checkbox"
-                          checked={workHours[day] !== undefined}
-                          onChange={() => handleToggleWorkDay(day)}
-                          className="w-5 h-5"
-                        />
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={workHours[day] !== undefined}
+                            onChange={() => handleToggleWorkDay(day)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600"
+                          style={workHours[day] !== undefined ? { backgroundColor: selectedTheme.primary } : {}}
+                          ></div>
+                        </label>
                         {workHours[day] && (
                           <>
                             <input
                               type="time"
                               value={workHours[day]?.start || '09:00'}
                               onChange={(e) => handleWorkHoursChange(day, 'start', e.target.value)}
-                              className="px-3 py-2 border border-gray-300 dark:border-slate-600 dark:bg-slate-600 dark:text-white rounded-lg"
+                              className="px-3 py-2 border border-gray-300 dark:border-slate-600 dark:bg-slate-600 dark:text-white rounded-xl"
                             />
-                            <span className="text-gray-500">to</span>
+                            <span className="text-gray-500 dark:text-gray-400 font-medium">to</span>
                             <input
                               type="time"
                               value={workHours[day]?.end || '17:00'}
                               onChange={(e) => handleWorkHoursChange(day, 'end', e.target.value)}
-                              className="px-3 py-2 border border-gray-300 dark:border-slate-600 dark:bg-slate-600 dark:text-white rounded-lg"
+                              className="px-3 py-2 border border-gray-300 dark:border-slate-600 dark:bg-slate-600 dark:text-white rounded-xl"
                             />
                           </>
                         )}
+                        {!workHours[day] && (
+                          <span className="text-gray-400 dark:text-gray-500 text-sm">Day off</span>
+                        )}
                       </div>
                     ) : (
-                      <div className="flex-1">
+                      <div className="flex-1 flex items-center gap-2">
                         {workHours[day] ? (
-                          <p className="text-gray-700 dark:text-gray-300">
-                            {workHours[day].start} - {workHours[day].end}
-                          </p>
+                          <>
+                            <span 
+                              className="w-2 h-2 rounded-full"
+                              style={{ backgroundColor: selectedTheme.primary }}
+                            ></span>
+                            <p className="text-gray-700 dark:text-gray-300 font-medium">
+                              {workHours[day]?.start} - {workHours[day]?.end}
+                            </p>
+                          </>
                         ) : (
-                          <p className="text-gray-500 dark:text-gray-400">Not working</p>
+                          <>
+                            <span className="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600"></span>
+                            <p className="text-gray-400 dark:text-gray-500">Not working</p>
+                          </>
                         )}
                       </div>
                     )}
@@ -504,6 +597,82 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onBack, onUpdate }) => 
                     </button>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Appearance Tab */}
+          {activeTab === 'appearance' && (
+            <div>
+              <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-6">Appearance Settings</h2>
+              
+              <div className="mb-8">
+                <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4">Theme Color</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+                  Choose a theme color for the interface. This applies to buttons, accents, and highlights throughout the app.
+                </p>
+                
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  {themeColors.map((theme) => (
+                    <button
+                      key={theme.name}
+                      onClick={() => handleThemeChange(theme)}
+                      className={`relative p-4 rounded-xl border-2 transition-all ${
+                        selectedTheme.name === theme.name
+                          ? 'border-gray-900 dark:border-white shadow-lg scale-105'
+                          : 'border-gray-200 dark:border-slate-700 hover:border-gray-400 dark:hover:border-slate-500'
+                      }`}
+                    >
+                      {/* Color Preview */}
+                      <div 
+                        className={`w-full h-16 rounded-lg mb-3 bg-gradient-to-r ${theme.gradient} shadow-md`}
+                      />
+                      
+                      {/* Theme Name */}
+                      <p className="text-sm font-medium text-gray-800 dark:text-white text-center">
+                        {theme.name}
+                      </p>
+                      
+                      {/* Selected Indicator */}
+                      {selectedTheme.name === theme.name && (
+                        <div 
+                          className="absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center"
+                          style={{ backgroundColor: theme.primary }}
+                        >
+                          <Check size={14} className="text-white" />
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Preview Section */}
+              <div className="mt-8 p-6 bg-gray-50 dark:bg-slate-700 rounded-xl">
+                <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4">Preview</h3>
+                <div className="flex flex-wrap gap-3">
+                  <button 
+                    className="px-4 py-2 text-white rounded-lg shadow-md transition hover:opacity-90"
+                    style={{ backgroundColor: selectedTheme.primary }}
+                  >
+                    Primary Button
+                  </button>
+                  <button 
+                    className="px-4 py-2 rounded-lg shadow-md transition"
+                    style={{ backgroundColor: selectedTheme.primaryLight, color: selectedTheme.primary }}
+                  >
+                    Secondary Button
+                  </button>
+                  <span 
+                    className="px-3 py-1 text-sm font-medium rounded-full"
+                    style={{ backgroundColor: selectedTheme.primaryLight, color: selectedTheme.primary }}
+                  >
+                    Badge
+                  </span>
+                </div>
+                <div 
+                  className={`mt-4 h-2 w-full rounded-full bg-gradient-to-r ${selectedTheme.gradient}`}
+                />
               </div>
             </div>
           )}

@@ -60,8 +60,8 @@ export function isValidE164(phoneNumber: string): boolean {
 }
 
 /**
- * Formats a phone number for display (US format)
- * Converts +15551234567 to (555) 123-4567
+ * Formats a phone number for display (plain format: 555-123-4567)
+ * Converts +15551234567 to 555-123-4567
  * 
  * @param phoneNumber - The phone number in E.164 format
  * @returns The formatted phone number for display
@@ -77,7 +77,7 @@ export function formatPhoneForDisplay(phoneNumber: string): string {
     const areaCode = cleaned.substring(1, 4);
     const prefix = cleaned.substring(4, 7);
     const lineNumber = cleaned.substring(7, 11);
-    return `(${areaCode}) ${prefix}-${lineNumber}`;
+    return `${areaCode}-${prefix}-${lineNumber}`;
   }
   
   // For 10 digit numbers, assume US
@@ -85,7 +85,7 @@ export function formatPhoneForDisplay(phoneNumber: string): string {
     const areaCode = cleaned.substring(0, 3);
     const prefix = cleaned.substring(3, 6);
     const lineNumber = cleaned.substring(6, 10);
-    return `(${areaCode}) ${prefix}-${lineNumber}`;
+    return `${areaCode}-${prefix}-${lineNumber}`;
   }
   
   // For other formats, return as-is or with + if it had one

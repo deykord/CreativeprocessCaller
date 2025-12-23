@@ -82,7 +82,19 @@ export const Signup: React.FC = () => {
   return (
     <div className="auth-container">
       <div className="auth-card">
-        <h1>Sign Up</h1>
+        {/* Logo and Branding */}
+        <div className="flex flex-col items-center mb-8">
+          <img src="/favicon.svg" alt="CreativeCaller" className="w-20 h-20 mb-4" />
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent mb-2">
+            CreativeCaller
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400 text-center text-sm">
+            AI-Powered Sales Dialer & Automation Platform
+          </p>
+        </div>
+
+        <h2 className="text-xl font-semibold text-gray-800 dark:text-white mb-6">Create Account</h2>
+        
         <form onSubmit={handleSubmit}>
           <div className="form-row">
             <div className="form-group">

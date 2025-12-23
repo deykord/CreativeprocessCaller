@@ -8,6 +8,28 @@ import {
   ArrowUpDown, User, Building, Hash, FileText, Timer
 } from 'lucide-react';
 
+// Helper function to get relative time
+const getRelativeTime = (date: Date): string => {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+  const diffWeeks = Math.floor(diffDays / 7);
+  const diffMonths = Math.floor(diffDays / 30);
+
+  if (diffSecs < 60) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays === 1) return '1 day ago';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffWeeks === 1) return '1 week ago';
+  if (diffWeeks < 4) return `${diffWeeks} weeks ago`;
+  if (diffMonths === 1) return '1 month ago';
+  return `${diffMonths} months ago`;
+};
+
 interface CallLog {
   id: string;
   prospectId?: string;
@@ -110,7 +132,14 @@ const ALL_COLUMNS = [
   { key: 'recording', label: 'Recording', icon: Play },
 ];
 
-const CallHistoryAdvanced: React.FC = () => {
+interface CallHistoryAdvancedProps {
+  currentUser?: { id: string; role?: string; email?: string } | null;
+}
+
+const CallHistoryAdvanced: React.FC<CallHistoryAdvancedProps> = ({ currentUser }) => {
+  // Admin check
+  const isAdmin = currentUser?.role === 'admin';
+  
   // Data state
   const [callLogs, setCallLogs] = useState<CallLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -155,6 +184,9 @@ const CallHistoryAdvanced: React.FC = () => {
   
   // Recording menu state
   const [openRecordingMenu, setOpenRecordingMenu] = useState<string | null>(null);
+  
+  // Notes popup state
+  const [notesPopup, setNotesPopup] = useState<{ isOpen: boolean; note: string; prospectName: string } | null>(null);
   
   // Unique callers for filter dropdown
   const uniqueCallers = useMemo(() => {
@@ -530,12 +562,14 @@ const CallHistoryAdvanced: React.FC = () => {
                           >
                             {view.name}
                           </button>
-                          <button
-                            onClick={() => deleteView(view.id)}
-                            className="p-1 text-gray-400 hover:text-red-600"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          {isAdmin && (
+                            <button
+                              onClick={() => deleteView(view.id)}
+                              className="p-1 text-gray-400 hover:text-red-600"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -587,134 +621,161 @@ const CallHistoryAdvanced: React.FC = () => {
           </div>
         </div>
 
-        {/* Stats Bar */}
-        <div className="flex items-center gap-6 text-sm">
-          <div className="flex items-center gap-2">
-            <Phone size={16} className="text-gray-400" />
-            <span className="text-gray-600 dark:text-gray-400">Total Calls:</span>
-            <span className="font-semibold text-gray-900 dark:text-white">{stats.totalCalls}</span>
+        {/* Stats Bar - Modern Card Design */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+          <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/20 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-500 rounded-lg">
+                <Phone size={20} className="text-white" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wide">Total Calls</p>
+                <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{stats.totalCalls.toLocaleString()}</p>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Clock size={16} className="text-gray-400" />
-            <span className="text-gray-600 dark:text-gray-400">Total Time:</span>
-            <span className="font-semibold text-gray-900 dark:text-white">{formatDuration(stats.totalDuration)}</span>
+          <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/30 dark:to-purple-800/20 rounded-xl p-4 border border-purple-200 dark:border-purple-800">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-purple-500 rounded-lg">
+                <Clock size={20} className="text-white" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-purple-600 dark:text-purple-400 uppercase tracking-wide">Total Time</p>
+                <p className="text-2xl font-bold text-purple-900 dark:text-purple-100">{formatDuration(stats.totalDuration)}</p>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Timer size={16} className="text-gray-400" />
-            <span className="text-gray-600 dark:text-gray-400">Avg Duration:</span>
-            <span className="font-semibold text-gray-900 dark:text-white">{formatDuration(stats.avgDuration)}</span>
+          <div className="bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-900/30 dark:to-amber-800/20 rounded-xl p-4 border border-amber-200 dark:border-amber-800">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-amber-500 rounded-lg">
+                <Timer size={20} className="text-white" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-amber-600 dark:text-amber-400 uppercase tracking-wide">Avg Duration</p>
+                <p className="text-2xl font-bold text-amber-900 dark:text-amber-100">{formatDuration(stats.avgDuration)}</p>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <CheckCircle size={16} className="text-green-500" />
-            <span className="text-gray-600 dark:text-gray-400">Connect Rate:</span>
-            <span className="font-semibold text-green-600 dark:text-green-400">{stats.connectRate}%</span>
+          <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-900/30 dark:to-emerald-800/20 rounded-xl p-4 border border-emerald-200 dark:border-emerald-800">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-emerald-500 rounded-lg">
+                <CheckCircle size={20} className="text-white" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">Connect Rate</p>
+                <p className="text-2xl font-bold text-emerald-900 dark:text-emerald-100">{stats.connectRate}%</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Filters Panel - Compact Design */}
+      {/* Filters Panel - Modern Card Design */}
       {showFilters && (
-        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2">
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-2 items-end">
+        <div className="bg-gradient-to-b from-gray-50 to-white dark:from-gray-800 dark:to-gray-850 border-b border-gray-200 dark:border-gray-700 px-6 py-5">
+          {/* First Row - Search and Date Filters */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
             {/* Search */}
             <div className="lg:col-span-2">
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Search</label>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Search</label>
               <div className="relative">
-                <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   type="text"
                   value={filters.search}
                   onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
                   placeholder="Search prospects, notes..."
-                  className="w-full pl-7 pr-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full pl-10 pr-4 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm transition-all"
                 />
               </div>
             </div>
 
             {/* Date From */}
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">From Date</label>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">From Date</label>
               <input
                 type="date"
                 value={filters.dateFrom}
                 onChange={(e) => setFilters(prev => ({ ...prev, dateFrom: e.target.value }))}
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm transition-all"
               />
             </div>
 
             {/* Date To */}
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">To Date</label>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">To Date</label>
               <input
                 type="date"
                 value={filters.dateTo}
                 onChange={(e) => setFilters(prev => ({ ...prev, dateTo: e.target.value }))}
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm transition-all"
               />
             </div>
 
             {/* Duration Range */}
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Duration (min)</label>
-              <div className="flex gap-1">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Duration (sec)</label>
+              <div className="flex gap-2">
                 <input
                   type="number"
                   value={filters.durationMin}
                   onChange={(e) => setFilters(prev => ({ ...prev, durationMin: e.target.value }))}
                   placeholder="Min"
-                  className="w-1/2 px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-1/2 px-3 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm transition-all"
                 />
                 <input
                   type="number"
                   value={filters.durationMax}
                   onChange={(e) => setFilters(prev => ({ ...prev, durationMax: e.target.value }))}
                   placeholder="Max"
-                  className="w-1/2 px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-1/2 px-3 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm transition-all"
                 />
               </div>
             </div>
+          </div>
 
+          {/* Second Row - Dropdowns and Quick Filters */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
             {/* Has Recording */}
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Has Recording</label>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Has Recording</label>
               <select
                 value={filters.hasRecording}
                 onChange={(e) => setFilters(prev => ({ ...prev, hasRecording: e.target.value as any }))}
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm transition-all cursor-pointer"
               >
-                <option value="all">All</option>
-                <option value="yes">Yes</option>
-                <option value="no">No</option>
+                <option value="all">All Calls</option>
+                <option value="yes">With Recording</option>
+                <option value="no">No Recording</option>
               </select>
             </div>
 
             {/* Direction */}
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Direction</label>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Call Direction</label>
               <select
                 value={filters.direction}
                 onChange={(e) => setFilters(prev => ({ ...prev, direction: e.target.value as any }))}
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full px-3 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm transition-all cursor-pointer"
               >
-                <option value="all">All Calls</option>
-                <option value="inbound">Inbound</option>
-                <option value="outbound">Outbound</option>
+                <option value="all">All Directions</option>
+                <option value="inbound">📥 Inbound Only</option>
+                <option value="outbound">📤 Outbound Only</option>
               </select>
             </div>
-          </div>
 
-          {/* Second Row - Outcome and Agents in horizontal layout */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
-            {/* Outcome Filters */}
+            {/* Outcomes Multi-select */}
             <div>
-              <div className="flex items-center justify-between mb-0.5">
-                <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Outcomes</label>
-                <button
-                  onClick={() => setFilters(prev => ({ ...prev, outcomes: [] }))}
-                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-                >
-                  Clear
-                </button>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Outcomes</label>
+                {filters.outcomes.length > 0 && (
+                  <button
+                    onClick={() => setFilters(prev => ({ ...prev, outcomes: [] }))}
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium"
+                  >
+                    Clear ({filters.outcomes.length})
+                  </button>
+                )}
               </div>
               <select
                 multiple
@@ -724,54 +785,67 @@ const CallHistoryAdvanced: React.FC = () => {
                   const values = Array.from(e.target.selectedOptions).map(o => o.value);
                   setFilters(prev => ({ ...prev, outcomes: values }));
                 }}
-                className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white overflow-y-auto"
+                className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm transition-all overflow-y-auto"
               >
                 {OUTCOMES.map(outcome => (
-                  <option key={outcome} value={outcome}>{outcome}</option>
+                  <option key={outcome} value={outcome} className="py-1">{outcome}</option>
                 ))}
               </select>
             </div>
 
-            {/* Agent Filter */}
-            {uniqueCallers.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-0.5">
-                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Agents</label>
+            {/* Agents Multi-select */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Agents</label>
+                {filters.callers.length > 0 && (
                   <button
                     onClick={() => setFilters(prev => ({ ...prev, callers: [] }))}
-                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium"
                   >
-                    Clear
+                    Clear ({filters.callers.length})
                   </button>
-                </div>
-                <select
-                  multiple
-                  size={3}
-                  value={filters.callers}
-                  onChange={(e) => {
-                    const values = Array.from(e.target.selectedOptions).map(o => o.value);
-                    setFilters(prev => ({ ...prev, callers: values }));
-                  }}
-                  className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white overflow-y-auto"
-                >
-                  {uniqueCallers.map(caller => (
-                    <option key={caller} value={caller}>{caller}</option>
-                  ))}
-                </select>
+                )}
               </div>
-            )}
+              <select
+                multiple
+                size={3}
+                value={filters.callers}
+                onChange={(e) => {
+                  const values = Array.from(e.target.selectedOptions).map(o => o.value);
+                  setFilters(prev => ({ ...prev, callers: values }));
+                }}
+                className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm transition-all overflow-y-auto"
+              >
+                {uniqueCallers.map(caller => (
+                  <option key={caller} value={caller} className="py-1">{caller}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          {/* Reset button at bottom */}
-          <div className="mt-2 flex justify-end">
-            <button
-              onClick={resetFilters}
-              className="flex items-center gap-1 px-3 py-1 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition"
-            >
-              <X size={14} />
-              Reset All Filters
-            </button>
-          </div>
+          {/* Reset All Filters Button */}
+          {(filters.search || filters.outcomes.length > 0 || filters.callers.length > 0 || filters.dateFrom || filters.dateTo || filters.hasRecording !== 'all' || filters.direction !== 'all') && (
+            <div className="mt-4 flex items-center justify-end">
+              <button
+                onClick={() => setFilters({
+                  search: '',
+                  dateFrom: '',
+                  dateTo: '',
+                  outcomes: [],
+                  callers: [],
+                  durationMin: '',
+                  durationMax: '',
+                  hasRecording: 'all',
+                  answeredBy: [],
+                  direction: 'all',
+                })}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 bg-gray-100 dark:bg-gray-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
+              >
+                <X size={16} />
+                Reset All Filters
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -814,13 +888,15 @@ const CallHistoryAdvanced: React.FC = () => {
             {selectedIds.size} call(s) selected
           </span>
           <div className="flex items-center gap-3">
-            <button
-              onClick={deleteSelected}
-              className="flex items-center gap-2 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg transition"
-            >
-              <Trash2 size={16} />
-              Delete Selected
-            </button>
+            {isAdmin && (
+              <button
+                onClick={deleteSelected}
+                className="flex items-center gap-2 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg transition"
+              >
+                <Trash2 size={16} />
+                Delete Selected
+              </button>
+            )}
             <button
               onClick={() => setSelectedIds(new Set())}
               className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
@@ -836,7 +912,7 @@ const CallHistoryAdvanced: React.FC = () => {
         <table className="w-full">
           <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
             <tr>
-              <th className="px-6 py-4 w-16">
+              <th className="px-3 py-2 w-10">
                 <input
                   type="checkbox"
                   checked={selectedIds.size === paginatedLogs.length && paginatedLogs.length > 0}
@@ -847,7 +923,7 @@ const CallHistoryAdvanced: React.FC = () => {
                       setSelectedIds(new Set());
                     }
                   }}
-                  className="w-5 h-5 rounded"
+                  className="w-4 h-4 rounded"
                 />
               </th>
               {visibleColumns.map(colKey => {
@@ -857,13 +933,13 @@ const CallHistoryAdvanced: React.FC = () => {
                   <th
                     key={colKey}
                     onClick={() => handleSort(colKey)}
-                    className="px-6 py-4 text-left text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+                    className="px-3 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
                   >
-                    <div className="flex items-center gap-2">
-                      <col.icon size={16} />
+                    <div className="flex items-center gap-1.5">
+                      <col.icon size={13} />
                       {col.label}
                       {sortBy === colKey && (
-                        sortOrder === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />
+                        sortOrder === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />
                       )}
                     </div>
                   </th>
@@ -873,8 +949,8 @@ const CallHistoryAdvanced: React.FC = () => {
           </thead>
           <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-100 dark:divide-gray-700">
             {paginatedLogs.map(log => (
-              <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700">
-                <td className="px-6 py-4">
+              <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                <td className="px-3 py-2">
                   <input
                     type="checkbox"
                     checked={selectedIds.has(log.id)}
@@ -886,52 +962,70 @@ const CallHistoryAdvanced: React.FC = () => {
                         return next;
                       });
                     }}
-                    className="w-5 h-5 rounded"
+                    className="w-4 h-4 rounded"
                   />
                 </td>
                 {visibleColumns.map(colKey => {
                   switch (colKey) {
                     case 'timestamp':
+                      const callDate = new Date(log.timestamp);
                       return (
-                        <td key={colKey} className="px-6 py-4 text-base text-gray-700 dark:text-gray-200 whitespace-nowrap font-medium">
-                          {new Date(log.timestamp).toLocaleString()}
+                        <td key={colKey} className="px-3 py-2 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                            {getRelativeTime(callDate)}
+                          </div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            {callDate.toLocaleDateString()} {callDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
                         </td>
                       );
                     case 'prospectName':
                       return (
-                        <td key={colKey} className="px-6 py-4">
-                          <span className="text-base font-semibold text-gray-900 dark:text-white">{log.prospectName}</span>
+                        <td key={colKey} className="px-3 py-2">
+                          <button
+                            onClick={() => setFilters(prev => ({ ...prev, search: log.prospectName || '' }))}
+                            className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline cursor-pointer"
+                            title={`Filter by ${log.prospectName}`}
+                          >
+                            {log.prospectName}
+                          </button>
                         </td>
                       );
                     case 'company':
                       return (
-                        <td key={colKey} className="px-6 py-4 text-base text-gray-700 dark:text-gray-200">
+                        <td key={colKey} className="px-3 py-2 text-sm text-gray-600 dark:text-gray-300">
                           {log.company || '-'}
                         </td>
                       );
                     case 'phoneNumber':
                       return (
-                        <td key={colKey} className="px-6 py-4 text-base font-mono text-gray-700 dark:text-gray-300 font-medium">
-                          {log.phoneNumber}
+                        <td key={colKey} className="px-3 py-2">
+                          <button
+                            onClick={() => setFilters(prev => ({ ...prev, search: log.phoneNumber || '' }))}
+                            className="text-sm font-mono text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline cursor-pointer"
+                            title={`Filter by ${log.phoneNumber}`}
+                          >
+                            {log.phoneNumber}
+                          </button>
                         </td>
                       );
                     case 'fromNumber':
                       return (
-                        <td key={colKey} className="px-6 py-4 text-base font-mono text-gray-600 dark:text-gray-400">
+                        <td key={colKey} className="px-3 py-2 text-sm font-mono text-gray-500 dark:text-gray-400">
                           {log.fromNumber || '-'}
                         </td>
                       );
                     case 'duration':
                       return (
-                        <td key={colKey} className="px-6 py-4 text-base font-semibold text-gray-800 dark:text-gray-100">
+                        <td key={colKey} className="px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200">
                           {formatDuration(log.duration)}
                         </td>
                       );
                     case 'outcome':
                       const badge = getOutcomeBadge(log.outcome);
                       return (
-                        <td key={colKey} className="px-6 py-4">
-                          <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold ${badge.bg} ${badge.text}`}>
+                        <td key={colKey} className="px-3 py-2">
+                          <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium ${badge.bg} ${badge.text}`}>
                             {badge.icon}
                             {log.outcome}
                           </span>
@@ -939,54 +1033,64 @@ const CallHistoryAdvanced: React.FC = () => {
                       );
                     case 'callerName':
                       return (
-                        <td key={colKey} className="px-6 py-4 text-base text-gray-700 dark:text-gray-200 font-medium">
+                        <td key={colKey} className="px-3 py-2 text-sm text-gray-600 dark:text-gray-300">
                           {log.callerName || '-'}
                         </td>
                       );
                     case 'answeredBy':
                       return (
-                        <td key={colKey} className="px-6 py-4 text-base text-gray-700 dark:text-gray-200 capitalize font-medium">
+                        <td key={colKey} className="px-3 py-2 text-sm text-gray-600 dark:text-gray-300 capitalize">
                           {log.answeredBy || '-'}
                         </td>
                       );
                     case 'endReason':
                       return (
-                        <td key={colKey} className="px-6 py-4 text-base text-gray-700 dark:text-gray-200">
+                        <td key={colKey} className="px-3 py-2 text-sm text-gray-600 dark:text-gray-300">
                           {log.endReason || '-'}
                         </td>
                       );
                     case 'note':
                       return (
-                        <td key={colKey} className="px-6 py-4 text-base text-gray-600 dark:text-gray-300 max-w-xs truncate">
-                          {log.note || '-'}
+                        <td key={colKey} className="px-3 py-2 max-w-[150px]">
+                          {log.note ? (
+                            <button
+                              onClick={() => setNotesPopup({ isOpen: true, note: log.note, prospectName: log.prospectName || 'Unknown' })}
+                              className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline cursor-pointer truncate block max-w-full text-left"
+                              title="Click to view full note"
+                            >
+                              {log.note.length > 30 ? log.note.substring(0, 30) + '...' : log.note}
+                            </button>
+                          ) : (
+                            <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
+                          )}
                         </td>
                       );
                     case 'recording':
                       return (
-                        <td key={colKey} className="px-6 py-4">
+                        <td key={colKey} className="px-3 py-2">
                           {log.recordingUrl && log.recordingUrl.trim() ? (
-                            <div className="flex items-center gap-2">
-                              <audio controls src={log.recordingUrl} className="h-8 w-48" preload="metadata" />
+                            <div className="flex items-center gap-1.5">
+                              <audio controls src={log.recordingUrl} className="h-7 w-40" preload="metadata" />
                               <div className="relative">
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setOpenRecordingMenu(openRecordingMenu === log.id ? null : log.id);
                                   }}
-                                  className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                                  className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                                   title="More options"
                                 >
-                                  <MoreVertical size={16} className="text-gray-500 dark:text-gray-400" />
+                                  <MoreVertical size={14} className="text-gray-500 dark:text-gray-400" />
                                 </button>
                                 {openRecordingMenu === log.id && (
-                                  <div className="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 min-w-[140px] py-1">
+                                  <div className="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 min-w-[120px] py-1">
                                     <a
                                       href={log.recordingUrl}
                                       download={`recording-${log.prospectName || log.phoneNumber}.mp3`}
                                       onClick={() => setOpenRecordingMenu(null)}
-                                      className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                                      className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                                     >
-                                      <Download size={14} />
+                                      <Download size={12} />
                                       Download
                                     </a>
                                     <button
@@ -994,17 +1098,17 @@ const CallHistoryAdvanced: React.FC = () => {
                                         window.open(log.recordingUrl, '_blank');
                                         setOpenRecordingMenu(null);
                                       }}
-                                      className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors w-full text-left"
+                                      className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors w-full text-left"
                                     >
-                                      <Eye size={14} />
-                                      Open in new tab
+                                      <Eye size={12} />
+                                      Open
                                     </button>
                                   </div>
                                 )}
                               </div>
                             </div>
                           ) : (
-                            <span className="text-sm text-gray-400 dark:text-gray-500">No recording</span>
+                            <span className="text-xs text-gray-400 dark:text-gray-500">-</span>
                           )}
                         </td>
                       );
@@ -1104,6 +1208,45 @@ const CallHistoryAdvanced: React.FC = () => {
                 className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg"
               >
                 Save View
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notes Popup Modal */}
+      {notesPopup?.isOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setNotesPopup(null)}
+        >
+          <div 
+            className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <FileText size={20} className="text-blue-600" />
+                Notes for {notesPopup.prospectName}
+              </h3>
+              <button
+                onClick={() => setNotesPopup(null)}
+                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
+              >
+                <X size={20} className="text-gray-500" />
+              </button>
+            </div>
+            <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 max-h-[300px] overflow-y-auto">
+              <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
+                {notesPopup.note}
+              </p>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={() => setNotesPopup(null)}
+                className="px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition-colors"
+              >
+                Close
               </button>
             </div>
           </div>

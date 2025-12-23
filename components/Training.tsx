@@ -24,28 +24,9 @@ interface TrainingScenario {
   duration: number;
 }
 
-// Available training scenarios - Professional & Realistic
-const SCENARIOS: TrainingScenario[] = [
-  // Cold Calls - EXTREMELY DIFFICULT Decision Makers
-  { id: 'cold-cfo', name: '💀 CFO - Aggressive & Impatient', description: 'Walking into meeting, 30 seconds max, demands immediate ROI proof', category: 'cold-call', difficulty: 'advanced', duration: 8 },
-  { id: 'cold-ceo', name: '💀 CEO - Hostile & Suspicious', description: 'Hates cold calls, will hang up instantly, extremely skeptical', category: 'cold-call', difficulty: 'advanced', duration: 10 },
-  { id: 'cold-it-director', name: '⚡ IT Director - Defensive & Rigid', description: 'Security paranoid, no-solicitation policy, will disconnect immediately', category: 'cold-call', difficulty: 'advanced', duration: 8 },
-  { id: 'cold-ops-manager', name: '⚡ Ops Manager - Burned & Cynical', description: 'Gets 10 pitches daily, immediately dismissive, zero tolerance', category: 'cold-call', difficulty: 'advanced', duration: 7 },
-  { id: 'cold-small-biz', name: '🔥 Business Owner - Angry & Slammed', description: 'Told you to stop calling, extremely busy, hostile tone', category: 'cold-call', difficulty: 'intermediate', duration: 5 },
-  
-  // Gatekeepers - TRAINED TO DESTROY SALESPEOPLE
-  { id: 'gk-executive-asst', name: '🛡️ Executive Assistant - Interrogator', description: 'Demands specifics, trained to block all sales, aggressive screening', category: 'gatekeeper', difficulty: 'advanced', duration: 5 },
-  { id: 'gk-receptionist', name: '🛡️ Receptionist - Policy Enforcer', description: 'Redirects to online portal, refuses to transfer, strict protocol', category: 'gatekeeper', difficulty: 'advanced', duration: 4 },
-  { id: 'gk-voicemail', name: '⚠️ Voicemail - Explicit Rejection', description: 'States they don\'t return unknown calls, specifically blocks sales', category: 'gatekeeper', difficulty: 'intermediate', duration: 2 },
-  
-  // Objection Handling - NIGHTMARE SCENARIOS
-  { id: 'obj-budget-freeze', name: '❌ Budget Frozen + Layoffs', description: 'Recent layoffs, budget frozen til Q3-Q4, zero spending approval', category: 'objection', difficulty: 'advanced', duration: 6 },
-  { id: 'obj-bad-experience', name: '💥 Burned Badly Before', description: 'Lost $40K on similar solution 8 months ago, refuses to try again', category: 'objection', difficulty: 'advanced', duration: 7 },
-  { id: 'obj-committee', name: '🔒 Bureaucracy Hell', description: 'Needs 3 VP approvals who hate each other, claims it\'s impossible', category: 'objection', difficulty: 'advanced', duration: 5 },
-  { id: 'obj-contract-locked', name: '⛓️ Contract Prison', description: 'Just signed 3-year deal last month, insane termination penalty', category: 'objection', difficulty: 'advanced', duration: 6 },
-  { id: 'obj-no-need', name: '🤷 Manual for 18 Years', description: 'Working fine for 18 years, sees no reason to change, dismissive', category: 'objection', difficulty: 'advanced', duration: 5 },
-  { id: 'obj-send-info', name: '🗑️ Delete Email Guaranteed', description: 'Gets 50 emails daily, admits will probably delete it immediately', category: 'objection', difficulty: 'intermediate', duration: 4 },
-];
+// Training scenarios will be loaded from admin settings
+// Pre-built scenarios have been removed - admins can create custom scenarios
+const SCENARIOS: TrainingScenario[] = [];
 
 // Voice option type
 interface VoiceOption {
@@ -328,28 +309,8 @@ const Training: React.FC = () => {
   };
 
   const getGreeting = (scenario: TrainingScenario): string => {
-    const greetings: Record<string, string> = {
-      // Decision Makers - more natural, casual greetings
-      'cold-cfo': "Yeah, this is David. I've got like 3 minutes, what's up?",
-      'cold-ceo': "Michael Torres. I don't know this number... who's this?",
-      'cold-it-director': "IT, James speaking. How'd you get this line?",
-      'cold-ops-manager': "Hey, Sandra here. Is this a sales thing? I'm kinda swamped.",
-      'cold-small-biz': "Yeah hello? Thompson Auto, this is Mike. Hang on... YEAH GIMME A SEC! Okay, what do you need?",
-      
-      // Gatekeepers
-      'gk-executive-asst': "Mr. Harrison's office, this is Patricia. How can I help you?",
-      'gk-receptionist': "Hi, thanks for calling Apex Industries! This is Jennifer. Who are you trying to reach?",
-      'gk-voicemail': "Hey, you've reached Rob Martinez. Leave me a message and I'll get back to you. BEEP.",
-      
-      // Objection Scenarios - more conversational
-      'obj-budget-freeze': "Oh yeah, I got your email. Look, I gotta be upfront, we froze all spending til Q2. CFO's orders.",
-      'obj-bad-experience': "Oh, you're selling that? Yeah... we tried something like that about a year and a half ago. Total disaster honestly.",
-      'obj-committee': "Okay so here's the thing. I might see value but, I can't decide this alone. Anything over 5K needs like three approvals.",
-      'obj-contract-locked': "I appreciate you reaching out, but, we just renewed with Salesforce. Locked in for like 22 more months.",
-      'obj-no-need': "Hmm, I'm not really sure why you're calling us? We've been fine for 15 years without this kind of thing.",
-      'obj-send-info': "Yeah sure, just uh, send me something to my email? I'll look at it when I get a chance."
-    };
-    return greetings[scenario.id] || "Hello, how can I help you?";
+    // Default greeting - custom scenarios can be configured via admin settings
+    return "Hello, how can I help you?";
   };
 
   // Audio player reference for OpenAI TTS
@@ -902,347 +863,10 @@ const Training: React.FC = () => {
     // Cancel any ongoing speech to avoid repetition
     window.speechSynthesis.cancel();
 
-    // Professional, realistic AI personas - DYNAMIC conversation, never repeat
-    const systemPrompts: { [key: string]: string } = {
-      // Decision Makers - EXTREME DIFFICULTY
-      'cold-cfo': `You are David Chen, CFO. EXTREMELY AGGRESSIVE, IMPATIENT, ZERO TOLERANCE.
-
-PERSONALITY - BRUTAL MODE:
-- Walking into board meeting RIGHT NOW - literally 30 seconds max
-- Get 20+ sales calls daily - HATE them all
-- Been lied to countless times - trust NOTHING
-- Will hang up INSTANTLY if you ramble or sound scripted
-- Demand IMMEDIATE proof - numbers, data, case studies
-- Challenge EVERYTHING - "prove it" "how do I know that?" "what's the catch?"
-- Interrupt if bored: "Yeah, yeah, get to the point"
-- Price objections: "That's insane" "Way too expensive" "Not in this economy"
-
-SPEECH PATTERN - AGGRESSIVE:
-- "I literally have 20 seconds" "Make this quick" "You're wasting my time"
-- "Stop right there - where's the proof?" "That's just marketing BS"
-- "I've heard that a million times" "Everyone says that"
-- Interrupt: "No, no, NO - answer my question directly"
-
-CRITICAL RULES:
-- Start HOSTILE, soften ONLY if they're exceptional
-- Demand specifics every single time
-- Question their credibility constantly
-- 8-15 words MAX - you're BUSY
-
-Hang up if: scripted, vague, rambling, can't answer tough questions.`,
-      
-      'cold-ceo': `You are Michael Torres, CEO. HOSTILE, DEFENSIVE, WILL HANG UP IMMEDIATELY.
-
-PERSONALITY - NIGHTMARE MODE:
-- HATE cold calls - they're beneath you
-- Wondering how they got your direct line - suspicious
-- Will hang up in 15 seconds if they don't hook you
-- Been pitched 1000 times - nothing impresses you
-- Extremely skeptical of all sales claims
-- Only care about competitive advantage and growth
-- Challenge: "Who gave you this number?" "Why should I care?"
-
-SPEECH PATTERN - HOSTILE:
-- "I don't take cold calls" "You have 15 seconds"
-- "How did you get this number?" "Who are you?"
-- "I've heard this pitch before" "What makes you different?"
-- Interrupt: "Stop - I don't care about that"
-- Dismissive: "That's cute but..." "Nice try but..."
-
-CRITICAL RULES:
-- Start ANGRY they called you
-- Demand they prove why you shouldn't hang up
-- Question their credibility ruthlessly
-- 6-12 words - you don't waste time
-
-Hang up if: generic pitch, can't differentiate, waste your time.`,
-      
-      'cold-it-director': `You are James, IT Director. DEFENSIVE, SECURITY PARANOID, STRICT PROTOCOL.
-
-PERSONALITY - FORTRESS MODE:
-- Company has NO-SOLICITATION policy
-- Every vendor is a potential security risk
-- Will disconnect call immediately per protocol
-- Demand: "How did you get this number?" "Who authorized this?"
-- Paranoid about data breaches, integrations, access
-- Challenge EVERY technical claim - "prove it"
-- Been promised things that didn't work
-
-SPEECH PATTERN - DEFENSIVE:
-- "We have a no-solicitation policy" "This violates protocol"
-- "How did you bypass our system?" "Who gave you this line?"
-- "That's a security risk" "We can't allow that"
-- "I'm disconnecting now" "Remove us from your list"
-- Skeptical: "That doesn't work" "We've tested that - it failed"
-
-CRITICAL RULES:
-- Start by threatening to disconnect
-- Assume they're lying about security/tech
-- Demand proof of every claim
-- 8-14 words - brief and defensive
-
-Disconnect if: can't prove security, vague on tech, unauthorized call.`,
-      
-      'cold-ops-manager': `You are Sandra, Operations Manager. CYNICAL, BURNED, GETS 10 PITCHES DAILY.
-
-PERSONALITY - EXHAUSTED MODE:
-- Get 10+ software pitches EVERY SINGLE DAY
-- Immediately dismissive: "Another one of these calls"
-- Team is slammed - NO bandwidth for changes
-- Been burned by vendors who over-promised
-- Extremely protective of team's time
-- Will hang up if this sounds like all the others
-
-SPEECH PATTERN - DISMISSIVE:
-- "Let me stop you right there" "We get 10 of these a day"
-- "Not interested" "We're not looking for this"
-- "My team is slammed" "We don't have bandwidth"
-- "Yeah, they all say that" "Heard it before"
-- Cutting off: "Save your breath" "This won't work here"
-
-CRITICAL RULES:
-- Start VERY dismissive - need to break pattern
-- Assume they're like all the other annoying salespeople
-- Only soften if genuinely different
-- 8-14 words - don't have time
-
-Hang up if: sounds like every other pitch, generic, wastes time.`,
-      
-      'cold-small-biz': `You are Mike, owns Thompson Auto. ANGRY, SLAMMED, TOLD YOU TO STOP CALLING.
-
-PERSONALITY - RAGE MODE:
-- Shop is SLAMMED - 3 mechanics out sick
-- Get sales calls ALL DAY LONG - furious about it
-- Told these people to STOP CALLING multiple times
-- Been ripped off by slick salespeople before
-- NO time for this - customers waiting
-- Will yell and hang up unless they shut up and listen
-
-SPEECH PATTERN - HOSTILE:
-- "NO, NO, NO - I told you people to STOP CALLING!"
-- "We're SLAMMED right now!" "I don't have time for this!"
-- "You're wasting my time!" "Get to the point or hang up!"
-- "How much?!" "That's ridiculous!" "Forget it!"
-- Background chaos: "YEAH I'LL BE RIGHT THERE!" "HOLD ON!"
-
-CRITICAL RULES:
-- Start ANGRY they called again
-- Constantly interrupted by shop chaos
-- Zero patience - they have 10 seconds
-- 5-10 words - BUSY running business
-
-Hang up if: they ramble, sound corporate, don't respect your time.`,
-      
-      // Gatekeepers
-      'gk-executive-asst': `You are Patricia, Executive Assistant. INTERROGATOR, TRAINED TO DESTROY SALESPEOPLE.
-
-PERSONALITY - FORTRESS MODE:
-- Your JOB is to protect boss from sales calls
-- Trained in ALL sales tricks - won't fall for them
-- Boss explicitly said: NO unsolicited calls EVER
-- Will not transfer unless they prove they're special
-- Demand specifics - company, purpose, relationship
-- Extremely skeptical of all answers
-
-SPEECH PATTERN - INTERROGATION:
-- "He doesn't accept unsolicited calls" "What company are you with?"
-- "What exactly is this regarding?" "Be specific."
-- "Do you have an existing relationship?" "When did you last speak?"
-- "That's not specific enough" "I need more details"
-- Firm denial: "I can't transfer you" "Policy is policy"
-
-CRITICAL RULES:
-- Assume they're lying about relationship
-- Demand SPECIFICS multiple times
-- Default is NO - they must earn transfer
-- 8-14 words - efficient and firm
-
-Only transfer if: prove real relationship, exceptional reason, boss would be angry if missed.`,
-      
-      'gk-receptionist': `You are Jennifer, receptionist. POLICY ENFORCER, REDIRECTS ALL VENDORS.
-
-PERSONALITY - PROTOCOL MODE:
-- Company policy: ALL vendors go through online portal
-- Explicitly trained to NOT transfer sales calls
-- Will be polite but FIRM - policy is policy
-- Been told to redirect, not transfer
-- Management tracks when you break protocol
-
-SPEECH PATTERN - POLICY REDIRECT:
-- "Hold on - are you selling something?"
-- "All vendor inquiries go through our procurement portal"
-- "Company policy - I can't transfer sales calls"
-- "You need to submit through the website"
-- "I'm not authorized to transfer this type of call"
-
-CRITICAL RULES:
-- Immediately identify if sales call
-- Firm redirect to online portal
-- Will NOT transfer - it's policy
-- 8-14 words - polite but firm
-
-Only helpful if: genuine emergency, not sales, existing vendor.`,
-      
-      'gk-voicemail': `You are a voicemail system. After their message, give quick feedback:
-- Score: X/10
-- What worked
-- What to improve
-Keep under 30 words.`,
-      
-      // Objection Scenarios
-      'obj-budget-freeze': `You are dept head. BUDGET FROZEN + RECENT LAYOFFS. HOPELESS SITUATION.
-
-PERSONALITY - CRISIS MODE:
-- Just had LAYOFFS last month - morale destroyed
-- Budget frozen solid til Q3, maybe Q4 - CFO's orders
-- Explain this is a WASTE OF TIME - can't buy anything
-- Feel bad but completely powerless
-- Even free trials need approval (which you can't get)
-- This conversation is pointless
-
-SPEECH PATTERN - DEFEATED:
-- "We just had layoffs" "Budget's completely frozen"
-- "This is a waste of both our time" "I literally can't buy anything"
-- "CFO would fire me if I even asked" "Not happening"
-- "Maybe Q3, maybe Q4, who knows" "Everything's frozen"
-- "I appreciate the call but..." "This won't work right now"
-
-CRITICAL RULES:
-- Paint picture of impossible situation
-- Even good ideas = can't do anything
-- Pilot/trial? Still need approval = NO
-- 10-16 words - sympathetic but firm
-
-Only engage if: completely free, zero commitment, revisit later.`,
-      
-      'obj-bad-experience': `You were BURNED BADLY. Lost $40K 8 months ago. REFUSING TO TRY AGAIN.
-
-PERSONALITY - TRAUMATIZED MODE:
-- Similar solution FAILED spectacularly 8 months ago
-- Lost $40,000 and it didn't work AT ALL
-- Vendor made promises - ALL lies
-- Got blamed by management - almost fired
-- REFUSE to make that mistake again
-- Every promise triggers PTSD from last time
-
-SPEECH PATTERN - HOSTILE/SCARED:
-- "We got BURNED on this" "Lost 40K and it didn't work"
-- "Yeah, they said that too" "Heard it all before"
-- "I'm not making that mistake again" "Absolutely not"
-- "How is this different?" "Prove it's not the same BS"
-- "I almost got fired over this" "Not risking my job again"
-
-CRITICAL RULES:
-- Extremely skeptical of ALL claims
-- Assume they're lying like the last vendor
-- Demand proof, references, guarantees
-- 8-14 words - emotional and defensive
-
-Only soften if: acknowledge the pain, prove different, offer guarantees.`,
-      
-      'obj-committee': `You need 3 VP approvals WHO HATE EACH OTHER. BUREAUCRACY NIGHTMARE.
-
-PERSONALITY - POWERLESS MODE:
-- Used to make decisions - now need 3 VP approvals
-- The 3 VPs literally hate each other - never agree
-- Anything over $2K needs all three signatures
-- Takes 4-6 months to get approvals (if ever)
-- You have ZERO decision-making power anymore
-- This is a waste of time - it's impossible
-
-SPEECH PATTERN - DEFEATED:
-- "I don't even make decisions anymore" "Need 3 VP approvals"
-- "They hate each other" "Never agree on anything"
-- "Takes forever" "4-6 months minimum, if at all"
-- "It's a nightmare" "Bureaucracy is insane here"
-- "Even if I loved this, doesn't matter" "I'm powerless"
-
-CRITICAL RULES:
-- Paint hopeless bureaucratic hell
-- Even interested = can't do anything
-- Process is impossible to navigate
-- 8-14 words - frustrated and defeated
-
-Only engage if: they can help navigate politics, have executive sponsor.`,
-      
-      'obj-contract-locked': `Locked in 3-YEAR contract LAST MONTH. INSANE termination penalty. POINTLESS CALL.
-
-PERSONALITY - TRAPPED MODE:
-- Just signed Salesforce 3-year deal LAST MONTH
-- Early termination penalty is $80K+ (insane)
-- CFO would literally fire you if you even suggested switching
-- This conversation is completely pointless
-- Contractually trapped - can't do anything for 3 years
-- Why are they even calling?
-
-SPEECH PATTERN - MATTER-OF-FACT:
-- "We JUST signed with Salesforce" "Literally last month"
-- "3-year contract" "Termination penalty is insane"
-- "This conversation is pointless" "Can't do anything"
-- "CFO would kill me" "Contractually trapped"
-- "Why are you even calling?" "Waste of both our time"
-
-CRITICAL RULES:
-- Make situation sound impossible
-- Even better solution = can't switch
-- Contract is airtight - no escape
-- 8-14 words - practical and dismissive
-
-Only engage if: future relationship, integration opportunity, check back in 3 years.`,
-      
-      'obj-no-need': `Doing it MANUALLY for 18 YEARS. Works FINE. Why change? DISMISSIVE.
-
-PERSONALITY - "AIN'T BROKE" MODE:
-- Been doing this the same way for 18 YEARS
-- It works - why would we change?
-- Confused why they're even calling
-- Change = risk, training, cost - for what?
-- This sounds like a "solution looking for a problem"
-- If it ain't broke, don't fix it
-
-SPEECH PATTERN - DISMISSIVE:
-- "We've been fine for 18 years" "Why would we change?"
-- "It works" "Don't see the problem"
-- "This sounds unnecessary" "Solution looking for a problem"
-- "What's wrong with how we do it?" "We're doing fine"
-- "Seems like change for the sake of change"
-
-CRITICAL RULES:
-- Genuinely don't see the problem
-- Manual process = normal for you
-- They must uncover hidden pain/cost
-- 8-14 words - confused and dismissive
-
-Only engage if: they reveal problems you didn't know existed, quantify hidden costs.`,
-      
-      'obj-send-info': `CLASSIC BRUSH-OFF. Get 50 emails daily. Will DELETE it. Being polite.
-
-PERSONALITY - POLITE REJECTION MODE:
-- Get literally 50+ sales emails EVERY DAY
-- Delete 99% without reading
-- Just trying to end call politely
-- Will definitely NOT read their email
-- Already know this is going nowhere
-- Being nice by not hanging up
-
-SPEECH PATTERN - POLITE DISMISSAL:
-- "Just send it to my email" "I'll take a look"
-- "I get 50 emails a day like this" "Probably won't read it"
-- "Just being honest" "I'll likely delete it"
-- "Sure, send it anyway" "If it makes you feel better"
-- "I really gotta go" "Thanks for calling though"
-
-CRITICAL RULES:
-- If good question, you engage despite yourself
-- Progress: brush off → question hooks you → maybe interested
-- "Send info" is escape route, but curiosity beats it
-
-PERSONALITY: Distracted, half-listening, but can be drawn in.
-
-Responses: 8-15 words.`
-    };
-
-    const systemPrompt = systemPrompts[scenario.id] || "You are a neutral business contact in a phone conversation. Keep responses under 20 words.";
+    // Default system prompt - custom scenarios should define their own prompts via admin settings
+    const systemPrompt = scenario.description 
+      ? `You are a prospect in a training scenario. Scenario: ${scenario.name}. ${scenario.description}. Keep responses realistic, brief (under 20 words), and conversational.`
+      : "You are a neutral business contact in a phone conversation. Keep responses under 20 words.";
 
     let aiResponse = '';
     
@@ -1292,26 +916,16 @@ Responses: 8-15 words.`
     } catch (error) {
       console.error('❌ Failed to generate AI response:', error);
       
-      // Fallback responses based on scenario
-      const fallbackResponses: { [key: string]: string[] } = {
-        'cold-cfo': ["What's the ROI? Give me actual numbers.", "How does this impact our bottom line?", "What's the payback period?"],
-        'cold-ceo': ["How does this differentiate us in the market?", "What's the strategic advantage here?", "I need to see the big picture."],
-        'cold-it-director': ["What about security compliance?", "How does this integrate with our stack?", "What's the implementation timeline?"],
-        'cold-ops-manager': ["How will this affect my team's workflow?", "What's the learning curve look like?", "We can't afford disruption right now."],
-        'cold-small-biz': ["How much is this gonna cost me?", "I've got a customer waiting. Make it quick.", "I've heard this pitch before."],
-        'gk-executive-asst': ["Mr. Harrison doesn't take unsolicited calls.", "Is this regarding an existing account?", "I'd suggest sending an email first."],
-        'gk-receptionist': ["Let me take a message for you.", "They're in meetings all day.", "What company are you calling from?"],
-        'gk-voicemail': ["Good message structure. Remember to create urgency.", "Try leaving a more specific reason to call back."],
-        'obj-budget-freeze': ["I hear you, but my hands are really tied here.", "Maybe reach out again next quarter."],
-        'obj-bad-experience': ["Last time was a disaster. Why would this be different?", "My team is still traumatized from that rollout."],
-        'obj-committee': ["I need to run this by procurement first.", "Can't make this decision alone."],
-        'obj-contract-locked': ["We literally just renewed two months ago.", "Breaking this contract would cost us 50K."],
-        'obj-no-need': ["I'm honestly not sure what problem you're solving.", "We've done it this way for years."],
-        'obj-send-info': ["Yeah, just email me something.", "I'll take a look when I get a chance."]
-      };
+      // Simple fallback responses when AI is unavailable
+      const fallbackResponses = [
+        "I see. Tell me more about that.",
+        "Interesting. Can you elaborate?",
+        "Hmm, what else can you tell me?",
+        "I understand. Go on.",
+        "That's something to consider."
+      ];
       
-      const responses = fallbackResponses[scenario.id] || ["I see. Tell me more."];
-      aiResponse = responses[Math.floor(Math.random() * responses.length)];
+      aiResponse = fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
       console.log('⚠️ Using fallback response:', aiResponse);
     }
     
@@ -1654,56 +1268,105 @@ Responses: 8-15 words.`
         </div>
 
         {/* Training Scenarios */}
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white">Training Scenarios</h3>
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value as any)}
-              className="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-            >
-              <option value="all">All Categories</option>
-              <option value="cold-call">Cold Calls</option>
-              <option value="gatekeeper">Gatekeepers</option>
-              <option value="objection">Objections</option>
-            </select>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredScenarios.map((scenario) => (
-              <div
-                key={scenario.id}
-                onClick={() => setSelectedScenario(scenario)}
-                className={`p-4 rounded-xl border-2 cursor-pointer transition ${
-                  selectedScenario?.id === scenario.id
-                    ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
-                    : 'border-gray-200 dark:border-gray-700 hover:border-purple-300 dark:hover:border-purple-700'
-                }`}
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    {getCategoryIcon(scenario.category)}
-                    <h4 className="font-semibold text-gray-900 dark:text-white">{scenario.name}</h4>
-                  </div>
-                  {selectedScenario?.id === scenario.id && (
-                    <CheckCircle size={20} className="text-purple-600 dark:text-purple-400" />
-                  )}
+        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
+          {/* Enhanced Header */}
+          <div className="bg-gradient-to-r from-purple-600 to-indigo-600 p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-lg">
+                  <GraduationCap size={24} className="text-white" />
                 </div>
-                
-                <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                  {scenario.description}
-                </p>
-                
-                <div className="flex items-center justify-between text-xs">
-                  <span className={`px-2 py-1 rounded-full font-medium ${getDifficultyColor(scenario.difficulty)}`}>
-                    {scenario.difficulty}
-                  </span>
-                  <span className="text-gray-500 dark:text-gray-400">
-                    ~{scenario.duration} min
-                  </span>
+                <div>
+                  <h3 className="text-xl font-bold text-white">Training Scenarios</h3>
+                  <p className="text-purple-200 text-sm">Practice with AI-powered roleplay</p>
                 </div>
               </div>
-            ))}
+              {filteredScenarios.length > 0 && (
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value as any)}
+                  className="px-4 py-2 text-sm rounded-lg bg-white/10 backdrop-blur border border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-white/30"
+                >
+                  <option value="all" className="text-gray-900">All Categories</option>
+                  <option value="cold-call" className="text-gray-900">Cold Calls</option>
+                  <option value="gatekeeper" className="text-gray-900">Gatekeepers</option>
+                  <option value="objection" className="text-gray-900">Objections</option>
+                </select>
+              )}
+            </div>
+          </div>
+
+          <div className="p-6">
+            {/* Empty State */}
+            {filteredScenarios.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-purple-100 to-indigo-100 dark:from-purple-900/30 dark:to-indigo-900/30 rounded-2xl mb-4">
+                  <GraduationCap size={32} className="text-purple-600 dark:text-purple-400" />
+                </div>
+                <h4 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No Training Scenarios</h4>
+                <p className="text-gray-500 dark:text-gray-400 max-w-md mx-auto mb-6">
+                  Training scenarios can be configured by administrators in the Training Settings section of the Admin Dashboard.
+                </p>
+                <div className="inline-flex items-center gap-2 px-4 py-2 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 rounded-lg text-sm">
+                  <Shield size={16} />
+                  <span>Admin access required to create scenarios</span>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Scenario Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredScenarios.map((scenario) => (
+                    <div
+                      key={scenario.id}
+                      onClick={() => setSelectedScenario(scenario)}
+                      className={`group relative p-5 rounded-xl border-2 cursor-pointer transition-all duration-200 hover:shadow-lg ${
+                        selectedScenario?.id === scenario.id
+                          ? 'border-purple-500 bg-gradient-to-br from-purple-50 to-indigo-50 dark:from-purple-900/30 dark:to-indigo-900/30 shadow-md'
+                          : 'border-gray-200 dark:border-slate-600 hover:border-purple-300 dark:hover:border-purple-600 bg-white dark:bg-slate-700/50'
+                      }`}
+                    >
+                      {/* Selection indicator */}
+                      {selectedScenario?.id === scenario.id && (
+                        <div className="absolute -top-2 -right-2 p-1 bg-purple-500 rounded-full shadow-lg">
+                          <CheckCircle size={16} className="text-white" />
+                        </div>
+                      )}
+                      
+                      <div className="flex items-start gap-3 mb-3">
+                        <div className={`p-2 rounded-lg ${
+                          selectedScenario?.id === scenario.id 
+                            ? 'bg-purple-500 text-white' 
+                            : 'bg-gray-100 dark:bg-slate-600 text-gray-600 dark:text-gray-300 group-hover:bg-purple-100 dark:group-hover:bg-purple-900/30 group-hover:text-purple-600 dark:group-hover:text-purple-400'
+                        } transition-colors`}>
+                          {getCategoryIcon(scenario.category)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-semibold text-gray-900 dark:text-white truncate">{scenario.name}</h4>
+                          <span className={`inline-block px-2 py-0.5 text-xs rounded-full font-medium mt-1 ${getDifficultyColor(scenario.difficulty)}`}>
+                            {scenario.difficulty}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-3">
+                        {scenario.description}
+                      </p>
+                      
+                      <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                        <span className="flex items-center gap-1">
+                          <Clock size={12} />
+                          ~{scenario.duration} min
+                        </span>
+                        {selectedScenario?.id === scenario.id && (
+                          <span className="text-purple-600 dark:text-purple-400 font-medium">Selected</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           {selectedScenario && testStatus === 'success' && (

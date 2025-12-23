@@ -94,11 +94,11 @@ export const SalesFloor: React.FC<Props> = ({ teamMembers = [] }) => {
   const getActivityIcon = (action: string) => {
     switch (action) {
       case 'call_made':
-        return <Phone className="w-4 h-4 text-blue-500" />;
+        return <Phone className="w-4 h-4 text-blue-500 dark:text-blue-400" />;
       case 'status_change':
-        return <TrendingUp className="w-4 h-4 text-green-500" />;
+        return <TrendingUp className="w-4 h-4 text-green-500 dark:text-green-400" />;
       default:
-        return <Activity className="w-4 h-4 text-gray-500" />;
+        return <Activity className="w-4 h-4 text-gray-500 dark:text-gray-400" />;
     }
   };
 

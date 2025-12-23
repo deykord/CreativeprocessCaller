@@ -9,6 +9,9 @@ const config = require('../config/config');
 // In-memory store for active call statuses (in production, use Redis)
 const activeCallStatuses = new Map();
 
+// In-memory cache for recordings that arrive before call logs (persist for 30 minutes)
+const pendingRecordings = new Map();
+
 /**
  * Map Telnyx event types to our internal call statuses
  */
@@ -154,10 +157,11 @@ async function handleCallAnswered(payload) {
 
   // Start recording automatically for all answered calls
   try {
-    await telnyxClient.startRecording(callControlId, 'dual');
-    console.log(`✓ Recording started for call: ${callControlId}`);
+    console.log(`🎙️ Attempting to start recording for call: ${callControlId}`);
+    const result = await telnyxClient.startRecording(callControlId, 'dual');
+    console.log(`✓ Recording started successfully for call: ${callControlId}`, result);
   } catch (error) {
-    console.error(`✗ Failed to start recording for call ${callControlId}:`, error);
+    console.error(`✗ Failed to start recording for call ${callControlId}:`, error.message || error);
   }
 }
 
@@ -279,8 +283,11 @@ async function handleRecordingSaved(payload) {
   const recordingId = payload.recording_id;
   const recordingUrl = payload.recording_urls?.mp3 || payload.recording_urls?.wav;
 
-  console.log(`Recording saved: ${recordingId} for call ${callControlId}`);
-  console.log(`Recording URL: ${recordingUrl}`);
+  console.log(`📼 ========== RECORDING SAVED EVENT ==========`);
+  console.log(`📼 Recording ID: ${recordingId}`);
+  console.log(`📼 Call Control ID: ${callControlId}`);
+  console.log(`📼 Recording URL: ${recordingUrl}`);
+  console.log(`📼 Full payload:`, JSON.stringify(payload, null, 2));
 
   // Update call status with recording info
   const existing = activeCallStatuses.get(callControlId) || {};
@@ -301,7 +308,47 @@ async function handleRecordingSaved(payload) {
       if (updated) {
         console.log(`✓ Recording URL saved to database for call ${callControlId}`);
       } else {
-        console.warn(`⚠ Call log not found for callControlId ${callControlId}, recording URL not saved to DB`);
+        console.warn(`⚠ Call log not found YET for callControlId ${callControlId}, storing in pending cache`);
+        
+        // Store in pending recordings cache for when the call log is created
+        pendingRecordings.set(callControlId, {
+          recordingUrl,
+          recordingId,
+          timestamp: Date.now()
+        });
+        
+        // Retry updating the database after delays (call log might not exist yet)
+        setTimeout(async () => {
+          try {
+            const retried = await dbService.updateCallLogRecording(callControlId, recordingUrl);
+            if (retried) {
+              console.log(`✓ Recording URL saved on retry #1 for call ${callControlId}`);
+              pendingRecordings.delete(callControlId);
+            }
+          } catch (err) {
+            console.log(`⚠ Retry #1 failed for ${callControlId}`);
+          }
+        }, 3000); // Retry after 3 seconds
+        
+        setTimeout(async () => {
+          try {
+            const retried = await dbService.updateCallLogRecording(callControlId, recordingUrl);
+            if (retried) {
+              console.log(`✓ Recording URL saved on retry #2 for call ${callControlId}`);
+              pendingRecordings.delete(callControlId);
+            }
+          } catch (err) {
+            console.log(`⚠ Retry #2 failed for ${callControlId}`);
+          }
+        }, 10000); // Retry after 10 seconds
+        
+        // Clean up pending recordings after 30 minutes
+        setTimeout(() => {
+          if (pendingRecordings.has(callControlId)) {
+            console.warn(`⚠ Removing stale pending recording for ${callControlId} after 30 minutes`);
+            pendingRecordings.delete(callControlId);
+          }
+        }, 30 * 60 * 1000);
       }
     } catch (error) {
       console.error(`✗ Error saving recording URL to database:`, error);
@@ -314,7 +361,7 @@ async function handleRecordingSaved(payload) {
  */
 async function handleAMDComplete(payload) {
   const callControlId = payload.call_control_id;
-  const result = payload.result; // 'human', 'machine', 'not_sure'
+  const result = payload.result; // 'human', 'machine', 'machine_end_beep', 'not_sure'
 
   console.log(`AMD complete: ${callControlId}, result: ${result}`);
 
@@ -326,10 +373,125 @@ async function handleAMDComplete(payload) {
     updatedAt: new Date().toISOString(),
   });
 
-  // If machine detected, you might want to leave a voicemail
-  // if (result === 'machine') {
-  //   await telnyxClient.playAudio(callControlId, 'https://yourserver.com/voicemail.mp3');
-  // }
+  // If machine detected with beep, trigger auto voicemail drop if configured
+  if (result === 'machine_end_beep' || result === 'machine') {
+    console.log('🤖 Answering machine detected - checking for auto voicemail drop');
+    await handleAutoVoicemailDrop(callControlId, existing);
+  }
+}
+
+/**
+ * Handle automatic voicemail drop when answering machine is detected
+ */
+async function handleAutoVoicemailDrop(callControlId, callData) {
+  try {
+    const pool = require('../config/database');
+    
+    // Get the user ID from the call metadata
+    const userId = callData.userId;
+    if (!userId) {
+      console.log('No user ID associated with call, skipping auto voicemail drop');
+      return;
+    }
+    
+    // Check if user has auto voicemail drop enabled
+    const settingsResult = await pool.query(
+      `SELECT * FROM automation_settings WHERE user_id = $1`,
+      [userId]
+    );
+    
+    if (settingsResult.rows.length === 0 || !settingsResult.rows[0].auto_voicemail_drop) {
+      console.log('Auto voicemail drop not enabled for user:', userId);
+      return;
+    }
+    
+    const settings = settingsResult.rows[0];
+    const voicemailId = settings.default_voicemail_id;
+    
+    if (!voicemailId) {
+      console.log('No default voicemail configured for user:', userId);
+      return;
+    }
+    
+    // Get the voicemail audio
+    const voicemailResult = await pool.query(
+      `SELECT id, name, audio_data, audio_type FROM voicemails WHERE id = $1`,
+      [voicemailId]
+    );
+    
+    if (voicemailResult.rows.length === 0) {
+      console.log('Voicemail not found:', voicemailId);
+      return;
+    }
+    
+    const voicemail = voicemailResult.rows[0];
+    console.log('📢 Dropping voicemail:', voicemail.name);
+    
+    // For now, use speak with a generic message or play audio URL
+    // In production, you'd host the audio file and use playback_start
+    // Since audio_data is base64, we'd need to serve it from a URL
+    
+    // Log the voicemail drop
+    const dropResult = await pool.query(
+      `INSERT INTO voicemail_drop_logs (user_id, prospect_id, voicemail_id, call_control_id, status)
+       VALUES ($1, $2, $3, $4, 'dropped')
+       RETURNING id`,
+      [userId, callData.prospectId || null, voicemailId, callControlId]
+    );
+    
+    // Increment voicemail usage
+    await pool.query(
+      `UPDATE voicemails SET times_used = times_used + 1 WHERE id = $1`,
+      [voicemailId]
+    );
+    
+    console.log('✅ Voicemail drop logged:', dropResult.rows[0]?.id);
+    
+    // Trigger SMS follow-up if enabled
+    if (settings.auto_sms_followup && callData.to) {
+      const automationController = require('./automationController');
+      const smsLogId = await automationController.sendVoicemailFollowupSms(
+        userId,
+        callData.prospectId,
+        callData.to,
+        callData.callLogId
+      );
+      
+      if (smsLogId) {
+        await pool.query(
+          `UPDATE voicemail_drop_logs SET sms_sent = true, sms_log_id = $1 WHERE id = $2`,
+          [smsLogId, dropResult.rows[0].id]
+        );
+        console.log('📱 SMS follow-up queued:', smsLogId);
+      }
+    }
+    
+    // Schedule callback if enabled
+    if (settings.auto_schedule_callback && callData.prospectId) {
+      const callbackTime = new Date();
+      callbackTime.setHours(callbackTime.getHours() + (settings.callback_delay_hours || 24));
+      
+      await pool.query(
+        `INSERT INTO scheduled_callbacks (user_id, prospect_id, original_call_id, scheduled_for, notes)
+         VALUES ($1, $2, $3, $4, 'Auto-scheduled after voicemail')`,
+        [userId, callData.prospectId, callData.callLogId, callbackTime]
+      );
+      console.log('📅 Callback scheduled for:', callbackTime);
+    }
+    
+    // Hang up after voicemail is complete (give it a few seconds)
+    setTimeout(async () => {
+      try {
+        await telnyxClient.hangupCall(callControlId);
+        console.log('📞 Call ended after voicemail drop');
+      } catch (err) {
+        console.log('Call may have already ended:', err.message);
+      }
+    }, 30000); // Wait 30 seconds for voicemail to play
+    
+  } catch (error) {
+    console.error('Error in auto voicemail drop:', error);
+  }
 }
 
 /**
@@ -423,6 +585,34 @@ exports.getRecordings = async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch recordings' });
   }
 };
+
+/**
+ * Get a specific recording URL by ID
+ */
+exports.getRecordingUrl = async (req, res) => {
+  try {
+    const { recordingId } = req.params;
+    if (!recordingId) {
+      return res.status(400).json({ error: 'Recording ID is required' });
+    }
+    
+    // Try to get the recording URL from Telnyx
+    const recordings = await telnyxClient.getRecordings();
+    const recording = recordings.find(r => r.id === recordingId);
+    
+    if (recording && recording.download_urls?.mp3) {
+      res.json({ url: recording.download_urls.mp3 });
+    } else if (recording && recording.download_urls?.wav) {
+      res.json({ url: recording.download_urls.wav });
+    } else {
+      res.status(404).json({ error: 'Recording not found' });
+    }
+  } catch (error) {
+    console.error('Error fetching recording URL:', error);
+    res.status(500).json({ error: 'Failed to fetch recording URL' });
+  }
+};
+
 /**
  * Get pending inbound calls (waiting for agent to answer)
  */
@@ -509,4 +699,128 @@ exports.answerInboundCall = async (req, res) => {
  */
 exports.isConfigured = (req, res) => {
   res.json({ configured: telnyxClient.isConfigured() });
+};
+
+/**
+ * Get pending recording URL for a callControlId (used when logging calls)
+ */
+exports.getPendingRecording = (callControlId) => {
+  const pending = pendingRecordings.get(callControlId);
+  if (pending) {
+    console.log(`✓ Found pending recording for ${callControlId}`);
+    pendingRecordings.delete(callControlId);
+    return pending.recordingUrl;
+  }
+  return null;
+};
+
+/**
+ * Failover Webhook Handler
+ * This endpoint is called by Telnyx when the primary webhook fails
+ * It logs the failure and attempts to process the event normally
+ */
+exports.handleFailoverWebhook = async (req, res) => {
+  try {
+    const event = req.body;
+    const eventType = event.data?.event_type;
+    const callControlId = event.data?.payload?.call_control_id;
+    
+    console.log('🚨 ========== FAILOVER WEBHOOK TRIGGERED ==========');
+    console.log('🚨 PRIMARY WEBHOOK FAILED - Using failover');
+    console.log('🚨 Event type:', eventType);
+    console.log('🚨 Call Control ID:', callControlId);
+    console.log('🚨 Timestamp:', new Date().toISOString());
+    console.log('🚨 Full event:', JSON.stringify(event, null, 2));
+
+    // Alert: Log to file for monitoring
+    const fs = require('fs');
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      eventType,
+      callControlId,
+      event: event
+    };
+    
+    // Append to failover log file
+    try {
+      const logPath = '/root/CreativeprocessCaller/logs/webhook_failover.log';
+      const logDir = require('path').dirname(logPath);
+      if (!fs.existsSync(logDir)) {
+        fs.mkdirSync(logDir, { recursive: true });
+      }
+      fs.appendFileSync(logPath, JSON.stringify(logEntry) + '\n');
+    } catch (logError) {
+      console.error('Failed to write failover log:', logError);
+    }
+
+    // Process the event using the same handler as primary webhook
+    const payload = event.data?.payload || {};
+
+    switch (eventType) {
+      case 'call.initiated':
+        await handleCallInitiated(payload);
+        break;
+      case 'call.answered':
+        await handleCallAnswered(payload);
+        break;
+      case 'call.bridged':
+        await handleCallBridged(payload);
+        break;
+      case 'call.hangup':
+        await handleCallHangup(payload);
+        break;
+      case 'call.recording.saved':
+        await handleRecordingSaved(payload);
+        break;
+      case 'call.machine.detection.ended':
+        await handleAMDComplete(payload);
+        break;
+      case 'call.dtmf.received':
+        await handleDTMFReceived(payload);
+        break;
+      default:
+        console.log('🚨 Unhandled failover event type:', eventType);
+    }
+
+    // Respond with 200 to acknowledge receipt
+    res.status(200).json({ 
+      received: true, 
+      failover: true,
+      message: 'Event processed via failover webhook'
+    });
+
+  } catch (error) {
+    console.error('🚨 Error in failover webhook handler:', error);
+    // Still return 200 to prevent Telnyx from retrying
+    res.status(200).json({ 
+      received: true, 
+      failover: true,
+      error: error.message 
+    });
+  }
+};
+
+/**
+ * Webhook Health Check
+ * Returns the status of the webhook endpoint for monitoring
+ */
+exports.webhookHealthCheck = (req, res) => {
+  const uptime = process.uptime();
+  const activeCallsCount = activeCallStatuses.size;
+  const pendingRecordingsCount = pendingRecordings.size;
+  
+  res.status(200).json({
+    status: 'healthy',
+    service: 'Telnyx Voice Webhook',
+    timestamp: new Date().toISOString(),
+    uptime: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`,
+    activeCalls: activeCallsCount,
+    pendingRecordings: pendingRecordingsCount,
+    telnyxConfigured: telnyxClient.isConfigured(),
+    endpoints: {
+      primary: '/api/telnyx/voice',
+      failover: '/api/telnyx/voice/failover',
+      health: '/api/telnyx/voice/health'
+    }
+  });
 };

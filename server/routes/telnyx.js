@@ -8,13 +8,18 @@ const router = express.Router();
 const telnyxController = require('../controllers/telnyxController');
 const authMiddleware = require('../middleware/authMiddleware');
 
-// Webhook endpoint - NO auth required (Telnyx calls this)
+// Webhook endpoints - NO auth required (Telnyx calls these)
 router.post('/voice', telnyxController.handleVoiceWebhook);
+router.post('/voice/failover', telnyxController.handleFailoverWebhook);
+
+// Health check endpoint for webhook monitoring
+router.get('/voice/health', telnyxController.webhookHealthCheck);
 
 // Protected endpoints
 router.get('/configured', authMiddleware, telnyxController.isConfigured);
 router.get('/numbers', authMiddleware, telnyxController.getPhoneNumbers);
 router.get('/recordings', authMiddleware, telnyxController.getRecordings);
+router.get('/recording/:recordingId/url', authMiddleware, telnyxController.getRecordingUrl);
 router.get('/calls/active', authMiddleware, telnyxController.getActiveCalls);
 router.get('/calls/inbound/pending', authMiddleware, telnyxController.getPendingInboundCalls);
 router.get('/calls/:callControlId/status', authMiddleware, telnyxController.getCachedCallStatus);

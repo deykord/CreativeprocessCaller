@@ -1,28 +1,13 @@
-const AccessToken = require('twilio').jwt.AccessToken;
-const VoiceGrant = AccessToken.VoiceGrant;
 const config = require('../config/config');
 
 exports.generateToken = (req, res) => {
   try {
-    const identity = req.body.identity || `agent_${Math.floor(Math.random() * 1000)}`;
-
-    // Validate all required credentials
-    if (!config.twilio.accountSid) {
-      console.error('Missing TWILIO_ACCOUNT_SID');
-      return res.status(500).json({ error: 'TWILIO_ACCOUNT_SID missing' });
-    }
-    if (!config.twilio.apiKey) {
-      console.error('Missing TWILIO_API_KEY');
-      return res.status(500).json({ error: 'TWILIO_API_KEY missing' });
-    }
-    if (!config.twilio.apiSecret) {
-      console.error('Missing TWILIO_API_SECRET');
-      return res.status(500).json({ error: 'TWILIO_API_SECRET missing' });
-    }
-    if (!config.twilio.twimlAppSid) {
-      console.error('Missing TWILIO_APP_SID');
-      return res.status(500).json({ error: 'TWILIO_APP_SID missing' });
-    }
+    // Twilio is disabled - using Telnyx only
+    console.log('Token generation requested but Twilio is disabled (using Telnyx)');
+    return res.status(501).json({ 
+      error: 'Twilio is not configured. This system uses Telnyx for voice services.',
+      provider: 'telnyx'
+    });
 
     console.log('Generating token with:');
     console.log('- Account SID:', config.twilio.accountSid);

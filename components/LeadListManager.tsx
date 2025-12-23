@@ -22,9 +22,12 @@ interface Props {
   teamMembers?: User[];
   openImportModal?: boolean;
   onImportModalClose?: () => void;
+  currentUser?: { id: string; role?: string } | null;
 }
 
-export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers = [], openImportModal = false, onImportModalClose }) => {
+export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers = [], openImportModal = false, onImportModalClose, currentUser }) => {
+  const isAdmin = currentUser?.role === 'admin';
+  
   const [leadLists, setLeadLists] = useState<LeadList[]>([]);
   const [permissions, setPermissions] = useState<Map<string, LeadListPermission[]>>(new Map());
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -1037,7 +1040,7 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
                               </>
                             )}
                           </button>
-                          {getSelectedCount(list.id) > 0 && (
+                          {getSelectedCount(list.id) > 0 && isAdmin && (
                             <button
                               onClick={() => handleBulkDeleteLeads(list.id)}
                               disabled={isBulkDeleting}
@@ -1076,13 +1079,15 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
                                 <span className="text-gray-500 ml-1">({prospect.company || 'No company'})</span>
                               </span>
                             </label>
-                            <button
-                              onClick={() => handleDeleteLeadFromList(list.id, prospect.id)}
-                              className="ml-2 text-red-600 hover:text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 px-2 py-1 rounded"
-                              title="Remove lead from list"
-                            >
-                              ×
-                            </button>
+                            {isAdmin && (
+                              <button
+                                onClick={() => handleDeleteLeadFromList(list.id, prospect.id)}
+                                className="ml-2 text-red-600 hover:text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 px-2 py-1 rounded"
+                                title="Remove lead from list"
+                              >
+                                ×
+                              </button>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -1106,13 +1111,15 @@ export const LeadListManager: React.FC<Props> = ({ prospects = [], teamMembers =
                       <Share2 size={16} />
                       Share
                     </button>
-                    <button
-                      onClick={() => handleDeleteList(list.id)}
-                      className="px-3 py-2 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 font-semibold rounded-lg transition"
-                      title="Delete entire list"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={() => handleDeleteList(list.id)}
+                        className="px-3 py-2 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 font-semibold rounded-lg transition"
+                        title="Delete entire list"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                   </div>
                 </div>
               );

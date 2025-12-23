@@ -5,7 +5,7 @@ import {
   Mic, MicOff, Volume2, Settings, Linkedin, AlertCircle, Check, PhoneOff, X, History,
   PhoneMissed, PhoneIncoming, PhoneOutgoing, Voicemail, UserX, Clock, Plus,
   Upload, Trash2, RefreshCw, CheckCircle, MoreVertical, Ban, PhoneForwarded,
-  FileText, ArrowLeft, ArrowRight, Loader2, AlertTriangle, Share2
+  FileText, ArrowLeft, ArrowRight, Loader2, AlertTriangle, Share2, Zap, TrendingUp
 } from 'lucide-react';
 import { backendAPI } from '../services/BackendAPI';
 import { voiceService, UnifiedCallStateInfo } from '../services/VoiceService';
@@ -484,7 +484,8 @@ const PowerDialer: React.FC<Props> = ({
           timestamp: new Date().toISOString(),
           prospectId: currentProspect.id,
           endReason: CallEndReason.FAILED,
-          callSid: currentCallSid || undefined
+          callSid: currentCallSid || undefined,
+          direction: 'outbound'
         });
       } catch (e) {
         console.error('Failed to log skipped call:', e);
@@ -523,7 +524,8 @@ const PowerDialer: React.FC<Props> = ({
         timestamp: new Date().toISOString(),
         prospectId: currentProspect.id,
         endReason: callEndReason || undefined,
-        callSid: currentCallSid || undefined
+        callSid: currentCallSid || undefined,
+        direction: 'outbound'
       });
       
       // Update prospect status to Contacted
@@ -745,7 +747,8 @@ const PowerDialer: React.FC<Props> = ({
         timestamp: new Date().toISOString(),
         prospectId: currentProspect.id,
         endReason: callEndReason || undefined,
-        callSid: currentCallSid || undefined
+        callSid: currentCallSid || undefined,
+        direction: 'outbound'
       });
       
       // Update prospect status to Contacted
@@ -1875,26 +1878,29 @@ const PowerDialer: React.FC<Props> = ({
 
   // Orum-style Layout
   return (
-    <div className="flex h-full bg-white dark:bg-gray-900">
+    <div className="flex h-full bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-slate-900">
       {/* Left Sidebar - Dialer Options */}
       {!sidebarCollapsed && (
-        <div className="w-56 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col flex-shrink-0">
-          <div className="p-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Dialer options</h3>
+        <div className="w-64 bg-white dark:bg-slate-800 border-r border-gray-200 dark:border-slate-700 flex flex-col flex-shrink-0 shadow-lg">
+          <div className="p-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between bg-gradient-to-r from-blue-600 to-indigo-600">
+            <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+              <Settings className="w-4 h-4" />
+              Dialer Settings
+            </h3>
             <button 
               onClick={() => setSidebarCollapsed(true)}
-              className="text-gray-400 hover:text-gray-600 p-1"
+              className="text-white/70 hover:text-white p-1 rounded hover:bg-white/10 transition"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto overflow-x-visible p-3 space-y-4">
+          <div className="flex-1 overflow-y-auto overflow-x-visible p-4 space-y-5">
             {/* List Selector with Actions */}
             <div className="relative" ref={listDropdownRef}>
-              <div className="flex items-center justify-between mb-1">
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400">
-                  List
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
+                  Lead List
                 </label>
                 <button
                   onClick={(e) => {
@@ -1903,7 +1909,7 @@ const PowerDialer: React.FC<Props> = ({
                     console.log('Import button clicked, opening modal');
                     setShowImportModal(true);
                   }}
-                  className="p-1.5 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded transition"
+                  className="p-1.5 text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition"
                   title="Import CSV"
                   type="button"
                 >
@@ -1914,20 +1920,20 @@ const PowerDialer: React.FC<Props> = ({
               {/* Custom Dropdown Trigger */}
               <button
                 onClick={() => setShowListDropdown(!showListDropdown)}
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center justify-between"
+                className="w-full px-3 py-2.5 text-sm border-2 border-gray-200 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex items-center justify-between shadow-sm hover:border-blue-300 transition-all"
               >
-                <span className={`truncate text-left flex-1 ${!selectedList ? 'text-gray-400' : ''}`}>{getSelectedListName()}</span>
+                <span className={`truncate text-left flex-1 ${!selectedList ? 'text-gray-400' : 'font-medium'}`}>{getSelectedListName()}</span>
                 <div className="flex items-center gap-1 flex-shrink-0">
                   {selectedList && (
                     <X 
-                      className="w-3 h-3 text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors" 
+                      className="w-4 h-4 text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors" 
                       onClick={(e) => {
                         e.stopPropagation();
                         handleClearListSelection();
                       }}
                     />
                   )}
-                  <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${showListDropdown ? 'rotate-180' : ''}`} />
+                  <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showListDropdown ? 'rotate-180' : ''}`} />
                 </div>
               </button>
 
@@ -2056,16 +2062,18 @@ const PowerDialer: React.FC<Props> = ({
                                 <RefreshCw className="w-3 h-3 text-gray-600" />
                                 Reassign this CSV
                               </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteListClick(list);
-                                }}
-                                className="w-full px-2 py-1.5 text-left text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 flex items-center gap-1.5"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                                Delete this CSV
-                              </button>
+                              {isAdmin && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteListClick(list);
+                                  }}
+                                  className="w-full px-2 py-1.5 text-left text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 flex items-center gap-1.5"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  Delete this CSV
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>
@@ -2166,29 +2174,35 @@ const PowerDialer: React.FC<Props> = ({
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between bg-white dark:bg-gray-800">
-          <div className="flex items-center gap-4">
-            <h2 className="text-base font-semibold text-gray-900 dark:text-white">
-              {selectedList ? getSelectedListName() : 'All Prospects'}
-            </h2>
-            <div className="flex items-center gap-3 text-sm">
+        {/* Header - Enhanced Design */}
+        <div className="border-b border-gray-200 dark:border-slate-700 px-6 py-4 flex items-center justify-between bg-white dark:bg-slate-800 shadow-sm">
+          <div className="flex items-center gap-6">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                <Zap className="w-5 h-5 text-yellow-500" />
+                {selectedList ? getSelectedListName() : 'Power Dialer'}
+              </h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                {isActive ? 'Session active' : 'Ready to dial'}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
               {/* Called (based on prospect status - anything other than 'New' means called) */}
-              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full">
-                <Phone className="w-3.5 h-3.5" />
-                <span className="font-medium">{activeQueue.filter(p => p.status !== 'New').length}</span>
-                <span className="text-green-600 dark:text-green-500 text-xs">called</span>
+              <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-xl shadow-sm">
+                <Phone className="w-4 h-4" />
+                <span className="font-bold">{activeQueue.filter(p => p.status !== 'New').length}</span>
+                <span className="text-green-100 text-sm">called</span>
               </div>
               {/* Not Called (status is 'New') */}
-              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-full">
-                <Users className="w-3.5 h-3.5" />
-                <span className="font-medium">{activeQueue.filter(p => p.status === 'New').length}</span>
-                <span className="text-blue-600 dark:text-blue-500 text-xs">not called</span>
+              <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-xl shadow-sm">
+                <Users className="w-4 h-4" />
+                <span className="font-bold">{activeQueue.filter(p => p.status === 'New').length}</span>
+                <span className="text-blue-100 text-sm">remaining</span>
               </div>
               {/* Total in list */}
-              <span className="text-gray-400 text-xs">
+              <div className="text-gray-400 text-sm font-medium">
                 of {activeQueue.length} total
-              </span>
+              </div>
             </div>
           </div>
           
@@ -2341,12 +2355,12 @@ const PowerDialer: React.FC<Props> = ({
               <button
                 onClick={handleStart}
                 disabled={disabled || isRequestingPermission}
-                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+                className="px-6 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50 shadow-lg shadow-green-500/25 transition-all hover:scale-105"
               >
                 {isRequestingPermission ? (
                   <>
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    Requesting Permission...
+                    Requesting...
                   </>
                 ) : (
                   <>
@@ -2359,7 +2373,7 @@ const PowerDialer: React.FC<Props> = ({
               <>
                 <button
                   onClick={handleEndSession}
-                  className="px-4 py-2 bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-700 dark:text-red-400 rounded-md text-sm font-medium flex items-center gap-2"
+                  className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-300 rounded-xl text-sm font-medium flex items-center gap-2 transition-all"
                 >
                   <PhoneOff className="w-4 h-4" />
                   End Session
@@ -2367,10 +2381,10 @@ const PowerDialer: React.FC<Props> = ({
                 <button
                   onClick={handleStartCalling}
                   disabled={disabled || !selectedList || activeQueue.length === 0}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium flex items-center gap-2 disabled:opacity-50"
+                  className="px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-blue-500/25 transition-all hover:scale-105"
                   title={!selectedList ? 'Select a list first' : activeQueue.length === 0 ? 'No prospects in this list' : ''}
                 >
-                  <Phone className="w-4 h-4" />
+                  <Zap className="w-4 h-4" />
                   Start Calling
                 </button>
               </>
@@ -2378,14 +2392,18 @@ const PowerDialer: React.FC<Props> = ({
               <>
                 <button
                   onClick={handleEndSession}
-                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-sm font-medium flex items-center gap-2"
+                  className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-gray-300 rounded-xl text-sm font-medium flex items-center gap-2 transition-all"
                 >
                   <PhoneOff className="w-4 h-4" />
                   End Session
                 </button>
                 <button
                   onClick={handlePauseResume}
-                  className="px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white rounded-md text-sm font-medium flex items-center gap-2"
+                  className={`px-6 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 shadow-lg transition-all hover:scale-105 ${
+                    isPaused 
+                      ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-green-500/25' 
+                      : 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-orange-500/25'
+                  }`}
                 >
                   {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
                   {isPaused ? 'Resume Dialing' : 'Pause Dialing'}
@@ -2394,7 +2412,7 @@ const PowerDialer: React.FC<Props> = ({
             )}
             
             {micPermissionError && !isActive && (
-              <div className="ml-4 px-3 py-2 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-md text-sm flex items-center gap-2">
+              <div className="ml-4 px-4 py-2.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-xl text-sm flex items-center gap-2 border border-red-200 dark:border-red-800">
                 <AlertCircle className="w-4 h-4" />
                 {micPermissionError}
               </div>
@@ -2403,7 +2421,7 @@ const PowerDialer: React.FC<Props> = ({
         </div>
 
         {/* Table Toolbar */}
-        <div className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2">
+        <div className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 px-6 py-3">
           <div className="flex items-center gap-3">
             {/* Sort By */}
             <div className="flex items-center gap-2 text-xs">

@@ -52,6 +52,28 @@ class DatabaseService {
   }
 
   /**
+   * Find prospect by phone number
+   */
+  async findProspectByPhone(phoneNumber) {
+    try {
+      // Strip any non-digit characters for comparison
+      const cleanPhone = phoneNumber.replace(/\D/g, '');
+      
+      // Match on last 10 digits to handle country codes
+      const result = await pool.query(
+        `SELECT * FROM prospects 
+         WHERE RIGHT(REGEXP_REPLACE(phone, '[^0-9]', '', 'g'), 10) = RIGHT($1, 10)
+         LIMIT 1`,
+        [cleanPhone]
+      );
+      return result.rows[0];
+    } catch (error) {
+      console.error('Error finding prospect by phone:', error);
+      return null;
+    }
+  }
+
+  /**
    * Create a new prospect
    */
   async createProspect(prospectData, createdBy = null) {
@@ -363,13 +385,15 @@ class DatabaseService {
         SELECT cl.*, 
                COALESCE(p.first_name, '') as prospect_first_name, 
                COALESCE(p.last_name, '') as prospect_last_name,
+               COALESCE(p.company, '') as company,
                COALESCE(
                  NULLIF(TRIM(COALESCE(p.first_name, '') || ' ' || COALESCE(p.last_name, '')), ''),
                  cl.prospect_name,
                  'Unknown'
                ) as resolved_prospect_name,
                u.first_name as caller_first_name,
-               u.last_name as caller_last_name
+               u.last_name as caller_last_name,
+               u.email as caller_email
         FROM call_logs cl
         LEFT JOIN prospects p ON cl.prospect_id = p.id
         LEFT JOIN users u ON cl.caller_id = u.id
@@ -485,7 +509,7 @@ class DatabaseService {
    * Get all call logs (alias for getCallLogs with no filter)
    */
   async getAllCallLogs() {
-    return this.getCallLogs(null, 500); // Reduced from 5000 to 500 for better performance
+    return this.getCallLogs(null, 3000); // Show last 3000 calls (covers most recordings)
   }
 
   /**
@@ -578,10 +602,17 @@ class DatabaseService {
       const direction = callData.direction || 
         (fromNumber && fromNumber !== phoneNumber ? 'inbound' : 'outbound');
 
+      // Calculate Telnyx call cost
+      // Telnyx rates: $0.002/min for calls + $0.002/min for recording (if recorded)
+      const durationMinutes = (duration || 0) / 60;
+      const callRate = 0.002; // $0.002 per minute
+      const recordingRate = recordingUrl ? 0.002 : 0; // $0.002 per minute if recording
+      const costUsd = parseFloat((durationMinutes * (callRate + recordingRate)).toFixed(6));
+
       const result = await pool.query(
         `INSERT INTO call_logs 
-         (prospect_id, caller_id, phone_number, from_number, outcome, duration, notes, recording_url, call_sid, end_reason, answered_by, prospect_name, direction, ended_at, started_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
+         (prospect_id, caller_id, phone_number, from_number, outcome, duration, notes, recording_url, call_sid, end_reason, answered_by, prospect_name, direction, cost_usd, ended_at, started_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
          RETURNING *`,
         [
           prospectId || null,
@@ -596,7 +627,8 @@ class DatabaseService {
           endReason || null,
           answeredBy || null,
           prospectName || null,
-          direction
+          direction,
+          costUsd
         ]
       );
 

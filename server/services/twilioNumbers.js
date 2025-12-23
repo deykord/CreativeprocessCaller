@@ -1,21 +1,9 @@
-const twilio = require('twilio');
-const config = require('../config/config');
-
-const client = twilio(config.twilio.accountSid, config.twilio.authToken);
+// Twilio is disabled - using Telnyx only
+// This file kept for backward compatibility but returns empty array
 
 async function getTwilioNumbers() {
-  try {
-    const numbers = await client.incomingPhoneNumbers.list({ limit: 20 });
-    return numbers.map(n => ({
-      sid: n.sid,
-      phoneNumber: n.phoneNumber,
-      friendlyName: n.friendlyName,
-      capabilities: n.capabilities
-    }));
-  } catch (error) {
-    console.error('Error fetching Twilio numbers:', error);
-    throw error;
-  }
+  console.log('Twilio is disabled, using Telnyx');
+  return [];
 }
 
 module.exports = { getTwilioNumbers };

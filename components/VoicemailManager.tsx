@@ -21,13 +21,17 @@ interface VoicemailManagerProps {
   onSelect?: (voicemail: Voicemail) => void;
   selectionMode?: boolean;
   compact?: boolean;
+  currentUser?: { id: string; role?: string } | null;
 }
 
 export const VoicemailManager: React.FC<VoicemailManagerProps> = ({ 
   onSelect, 
   selectionMode = false,
-  compact = false 
+  compact = false,
+  currentUser
 }) => {
+  const isAdmin = currentUser?.role === 'admin';
+  
   const [voicemails, setVoicemails] = useState<Voicemail[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -427,7 +431,7 @@ export const VoicemailManager: React.FC<VoicemailManagerProps> = ({
         ) : (
           <div>
             {/* Bulk Actions Bar */}
-            {selectedIds.size > 0 && (
+            {selectedIds.size > 0 && isAdmin && (
               <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg flex items-center justify-between">
                 <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
                   {selectedIds.size} voicemail{selectedIds.size > 1 ? 's' : ''} selected
@@ -587,13 +591,15 @@ export const VoicemailManager: React.FC<VoicemailManagerProps> = ({
                               <Star size={16} />
                             </button>
                           )}
-                          <button
-                            onClick={(e) => { e.stopPropagation(); deleteVoicemail(voicemail.id); }}
-                            className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition"
-                            title="Delete"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          {isAdmin && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); deleteVoicemail(voicemail.id); }}
+                              className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition"
+                              title="Delete"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

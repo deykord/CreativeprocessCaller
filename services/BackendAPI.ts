@@ -972,5 +972,66 @@ export const backendAPI = {
       throw new Error(`Failed to fetch training provider status: ${res.status}`);
     }
     return res.json();
+  },
+
+  // --- Generic API Methods (for new endpoints) ---
+
+  async get(endpoint: string): Promise<any> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}${endpoint}`, {
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || `Request failed: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  async post(endpoint: string, data?: any): Promise<any> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      },
+      body: data ? JSON.stringify(data) : undefined
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || `Request failed: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  async put(endpoint: string, data?: any): Promise<any> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token || ''}`,
+      },
+      body: data ? JSON.stringify(data) : undefined
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || `Request failed: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  async delete(endpoint: string): Promise<any> {
+    const token = localStorage.getItem('authToken');
+    const res = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token || ''}` }
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || `Request failed: ${res.status}`);
+    }
+    return res.json();
   }
 };

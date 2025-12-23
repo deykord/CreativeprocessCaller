@@ -1,8 +1,6 @@
-// Add Twilio Numbers fetcher
-const { getTwilioNumbers } = require('../services/twilioNumbers');
-const VoiceResponse = require('twilio').twiml.VoiceResponse;
+// Telnyx-only voice controller
 const config = require('../config/config');
-const { client: twilioClient } = require('../services/twilioClient');
+const telnyxClient = require('../services/telnyxClient');
 
 // Cache for Twilio numbers to avoid repeated API calls
 let cachedNumbers = null;
@@ -43,8 +41,8 @@ async function getDefaultCallerId() {
       }
     }
 
-    // Fetch fresh numbers
-    cachedNumbers = await getTwilioNumbers();
+    // Fetch fresh numbers from Telnyx
+    cachedNumbers = await telnyxClient.getPhoneNumbers();
     cacheTimestamp = Date.now();
 
     if (cachedNumbers.length > 0) {
@@ -52,204 +50,76 @@ async function getDefaultCallerId() {
       return cachedNumbers[0].phoneNumber;
     }
     
-    return null;
+    // Fallback to config
+    return config.telnyx.callerId || null;
   } catch (error) {
     console.error('Error getting default Caller ID:', error);
-    return null;
+    return config.telnyx.callerId || null;
   }
 }
 
 exports.handleTwilioNumbers = async (req, res) => {
   try {
-    const numbers = await getTwilioNumbers();
+    // Return Telnyx numbers instead
+    const numbers = await telnyxClient.getPhoneNumbers();
     cachedNumbers = numbers;
     cacheTimestamp = Date.now();
     res.json(numbers);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch Twilio numbers' });
+    console.error('Error fetching Telnyx numbers:', err);
+    res.status(500).json({ error: 'Failed to fetch phone numbers' });
   }
 };
 
 exports.handleVoiceRequest = async (req, res) => {
-  const To = req.body.To;
-  const callIdFromRequest = req.body.callerId; // May be passed from browser
-  const parentCallSid = req.body.CallSid; // Parent call SID from Twilio
-
-  console.log('========== VOICE REQUEST ==========');
-  console.log('Request body:', JSON.stringify(req.body, null, 2));
-
-  const response = new VoiceResponse();
-
-  if (To) {
-    // This is an outbound call from the browser to a phone number
-    // Priority: 1) callerId from request, 2) env variable, 3) fetch default
-    let callerId = callIdFromRequest || config.twilio.callerId;
-    
-    if (!callerId) {
-      callerId = await getDefaultCallerId();
-    }
-    
-    if (!callerId) {
-      console.error('ERROR: No Caller ID available (TWILIO_CALLER_ID not set and no phone numbers in account)');
-      res.type('text/xml');
-      res.send(new VoiceResponse().say('Error: Caller ID is not configured. Please configure Twilio phone numbers.').toString());
-      return;
-    }
-
-    console.log('Making outbound call with Caller ID:', callerId, 'To:', To);
-    console.log('Parent CallSid:', parentCallSid);
-
-    // Use absolute URLs for Twilio webhooks
-    const serverUrl = config.serverUrl || 'https://salescallagent.my';
-    
-    // Track the parent call status (browser -> Twilio)
-    // The dial statusCallback only tracks child calls (Twilio -> phone)
-    const dial = response.dial({
-      callerId: callerId,
-      record: 'record-from-answer',
-      recordingStatusCallback: `${serverUrl}/api/voice/recording`,
-      recordingStatusCallbackEvent: ['completed'],
-      statusCallback: `${serverUrl}/api/voice/status`,
-      statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
-      statusCallbackMethod: 'POST',
-      timeout: 30, // Ring for 30 seconds max before giving up
-      answerOnBridge: true, // Wait until callee picks up before connecting audio
-    });
-
-    // Check if 'To' is a phone number (simple regex for E.164 or US formats)
-    if (/^[\d\+\-\(\) ]+$/.test(To)) {
-      dial.number({
-        statusCallback: `${serverUrl}/api/voice/status`,
-        statusCallbackEvent: 'initiated ringing answered completed',
-        statusCallbackMethod: 'POST'
-      }, To);
-    } else {
-      // If it's not a number, assume it's a client name (Agent-to-Agent)
-      dial.client(To);
-    }
-
-    const twiml = response.toString();
-    console.log('Generated TwiML:', twiml);
-    res.type('text/xml');
-    res.send(twiml);
-  } else {
-    // Inbound call to the Twilio Number
-    response.say('Thank you for calling Creative Process IO. Connecting you to an agent.');
-    const dial = response.dial();
-    dial.client('agent_1'); // Hardcoded for demo, normally dynamic based on availability
-    res.type('text/xml');
-    res.send(response.toString());
-  }
+  // Twilio voice requests are disabled - using Telnyx
+  console.log('Voice request received but Twilio is disabled (using Telnyx)');
+  res.status(501).json({ 
+    error: 'Twilio voice is not configured. This system uses Telnyx.',
+    provider: 'telnyx' 
+  });
 };
 
-exports.handleCallStatus = async (req, res) => {
-  console.log('========== STATUS WEBHOOK RECEIVED ==========');
-  console.log('Full body:', JSON.stringify(req.body, null, 2));
-  
-  const {
-    CallSid,
-    CallStatus,
-    CallDuration,
-    From,
-    To,
-    Direction,
-    Timestamp,
-    AnsweredBy,
-    SipResponseCode,
-    CalledVia,
-    ParentCallSid // For child calls, this links to the parent
-  } = req.body;
+// Disabled - legacy Twilio voice handling
+// All voice functions now use Telnyx
 
-  console.log(`Webhook: Call ${CallSid} status=${CallStatus}, duration=${CallDuration}, answeredBy=${AnsweredBy}, parentSid=${ParentCallSid}`);
-  
-  // Determine call end reason
-  const endReason = getCallEndReason(CallStatus, parseInt(SipResponseCode) || null, AnsweredBy);
-  
-  // Store the call status
-  const callData = {
-    callSid: CallSid,
-    status: CallStatus,
-    duration: parseInt(CallDuration) || 0,
-    from: From,
-    to: To,
-    direction: Direction?.toLowerCase() || 'outbound',
-    timestamp: Timestamp || new Date().toISOString(),
-    answeredBy: AnsweredBy || null,
-    sipResponseCode: parseInt(SipResponseCode) || null,
-    endReason: endReason,
-    updatedAt: new Date().toISOString()
-  };
-  
-  activeCallStatuses.set(CallSid, callData);
-  
-  // Clean up completed calls after 5 minutes
-  if (['completed', 'busy', 'no-answer', 'failed', 'canceled'].includes(CallStatus)) {
-    setTimeout(() => {
-      activeCallStatuses.delete(CallSid);
-    }, 5 * 60 * 1000);
-  }
-  
+exports.handleCallStatus = async (req, res) => {
+  console.log('========== STATUS WEBHOOK RECEIVED (Legacy Twilio - Disabled) ==========');
+  console.log('This endpoint is disabled. Use Telnyx webhooks instead.');
   res.sendStatus(200);
 };
 
 exports.handleIncomingNumbers = async (req, res) => {
-    // This endpoint proxies the request to Twilio to list available numbers
-    // This allows the frontend to show numbers without exposing keys
-    const twilioService = require('../services/twilioClient');
+    // Return Telnyx numbers
     try {
-        const numbers = await twilioService.getIncomingNumbers();
+        const numbers = await telnyxClient.getPhoneNumbers();
         res.json(numbers);
     } catch (error) {
+        console.error('Error fetching Telnyx numbers:', error);
         res.status(500).json({ error: 'Failed to fetch numbers' });
     }
 };
 
-// Get real-time call status from Twilio
+// Get real-time call status (Telnyx)
 exports.getCallStatus = async (req, res) => {
   const { callSid } = req.params;
   
   if (!callSid) {
-    return res.status(400).json({ error: 'callSid is required' });
+    return res.status(400).json({ error: 'callSid/callControlId is required' });
   }
   
   try {
-    // First check our in-memory cache (updated by webhooks)
+    // Check our in-memory cache (updated by Telnyx webhooks)
     const cachedStatus = activeCallStatuses.get(callSid);
     
-    // Also fetch fresh status from Twilio API
-    const call = await twilioClient.calls(callSid).fetch();
-    
-    const endReason = getCallEndReason(call.status, null, call.answeredBy);
-    
-    const status = {
-      callSid: call.sid,
-      status: call.status,
-      direction: call.direction,
-      from: call.from,
-      to: call.to,
-      duration: parseInt(call.duration) || 0,
-      startTime: call.startTime,
-      endTime: call.endTime,
-      answeredBy: call.answeredBy || cachedStatus?.answeredBy || null,
-      endReason: cachedStatus?.endReason || endReason,
-      sipResponseCode: cachedStatus?.sipResponseCode || null,
-      price: call.price,
-      priceUnit: call.priceUnit
-    };
-    
-    // Update cache with fresh data
-    activeCallStatuses.set(callSid, { ...cachedStatus, ...status, updatedAt: new Date().toISOString() });
-    
-    res.json(status);
-  } catch (error) {
-    console.error('Error fetching call status:', error);
-    
-    // If Twilio API fails, return cached status if available
-    const cachedStatus = activeCallStatuses.get(callSid);
     if (cachedStatus) {
       return res.json(cachedStatus);
     }
     
+    // If not in cache, return a basic response
+    res.status(404).json({ error: 'Call status not found', callSid });
+  } catch (error) {
+    console.error('Error fetching call status:', error);
     res.status(500).json({ error: 'Failed to fetch call status', message: error.message });
   }
 };
@@ -257,22 +127,21 @@ exports.getCallStatus = async (req, res) => {
 // Get all active calls status
 exports.getActiveCalls = async (req, res) => {
   try {
-    // Fetch active calls from Twilio
-    const calls = await twilioClient.calls.list({
-      status: 'in-progress',
-      limit: 50
+    // Return calls from our cache
+    const activeCalls = [];
+    activeCallStatuses.forEach((status, callSid) => {
+      if (status.status === 'in-progress' || status.status === 'ringing') {
+        activeCalls.push({
+          callSid: callSid,
+          status: status.status,
+          direction: status.direction,
+          from: status.from,
+          to: status.to,
+          duration: status.duration || 0,
+          startTime: status.startTime
+        });
+      }
     });
-    
-    const activeCalls = calls.map(call => ({
-      callSid: call.sid,
-      status: call.status,
-      direction: call.direction,
-      from: call.from,
-      to: call.to,
-      duration: parseInt(call.duration) || 0,
-      startTime: call.startTime,
-      answeredBy: call.answeredBy || null
-    }));
     
     res.json(activeCalls);
   } catch (error) {
@@ -281,30 +150,29 @@ exports.getActiveCalls = async (req, res) => {
   }
 };
 
-// End a call (hangup from agent side)
+// End a call (hangup from agent side) - Telnyx
 exports.endCall = async (req, res) => {
   const { callSid } = req.params;
   
   if (!callSid) {
-    return res.status(400).json({ error: 'callSid is required' });
+    return res.status(400).json({ error: 'callSid/callControlId is required' });
   }
   
   try {
-    // Update call status in cache to mark agent hangup
+    // Update call status in cache
     const cachedStatus = activeCallStatuses.get(callSid);
     if (cachedStatus) {
       cachedStatus.endReason = 'agent_hangup';
       activeCallStatuses.set(callSid, cachedStatus);
     }
     
-    // End the call via Twilio API
-    const call = await twilioClient.calls(callSid).update({ status: 'completed' });
+    // End the call via Telnyx
+    await telnyxClient.hangupCall(callSid);
     
     res.json({
-      callSid: call.sid,
-      status: call.status,
-      endReason: 'agent_hangup',
-      duration: parseInt(call.duration) || 0
+      callSid: callSid,
+      status: 'completed',
+      endReason: 'agent_hangup'
     });
   } catch (error) {
     console.error('Error ending call:', error);

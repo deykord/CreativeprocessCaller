@@ -3,7 +3,52 @@
 /* Tailwind v4: Enable class-based dark mode */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Dynamic Theme Colors - CSS Custom Properties */
+:root {
+  --theme-primary: #3b82f6;
+  --theme-primary-hover: #2563eb;
+  --theme-primary-light: #dbeafe;
+  --theme-primary-dark: #1d4ed8;
+  --theme-accent: #0ea5e9;
+}
+
 @layer components {
+  /* Theme-aware button styles */
+  .btn-theme {
+    background-color: var(--theme-primary);
+    color: white;
+    transition: background-color 0.2s ease;
+  }
+  .btn-theme:hover {
+    background-color: var(--theme-primary-hover);
+  }
+  .btn-theme-outline {
+    border: 2px solid var(--theme-primary);
+    color: var(--theme-primary);
+    background: transparent;
+  }
+  .btn-theme-outline:hover {
+    background-color: var(--theme-primary);
+    color: white;
+  }
+  
+  /* Theme accent colors */
+  .text-theme {
+    color: var(--theme-primary);
+  }
+  .bg-theme {
+    background-color: var(--theme-primary);
+  }
+  .bg-theme-light {
+    background-color: var(--theme-primary-light);
+  }
+  .border-theme {
+    border-color: var(--theme-primary);
+  }
+  .ring-theme {
+    --tw-ring-color: var(--theme-primary);
+  }
+
   /* Custom scrollbar for cleaner UI */
   ::-webkit-scrollbar {
     width: 6px;
