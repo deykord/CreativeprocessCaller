@@ -199,6 +199,41 @@ class TelnyxService {
     }
   }
 
+  /**
+   * Ensure audio is playing when call is connected
+   */
+  private ensureAudioPlaying() {
+    if (typeof document === 'undefined') return;
+    
+    const audioEl = document.getElementById('telnyx-remote-audio') as HTMLAudioElement;
+    if (audioEl) {
+      console.log('🔊 Checking audio element state...');
+      console.log('   - paused:', audioEl.paused);
+      console.log('   - muted:', audioEl.muted);
+      console.log('   - volume:', audioEl.volume);
+      console.log('   - srcObject:', audioEl.srcObject ? 'SET' : 'NOT SET');
+      
+      // Make sure audio is not muted
+      audioEl.muted = false;
+      audioEl.volume = 1.0;
+      
+      // Try to play if paused
+      if (audioEl.paused && audioEl.srcObject) {
+        console.log('🔊 Audio was paused, attempting to play...');
+        audioEl.play().then(() => {
+          console.log('✓ Audio playback started successfully');
+        }).catch((err) => {
+          console.error('❌ Failed to play audio:', err);
+          // This often happens due to browser autoplay policy
+          console.log('💡 User may need to interact with the page to enable audio');
+        });
+      }
+    } else {
+      console.error('❌ Audio element not found!');
+      this.ensureAudioElement();
+    }
+  }
+
   private setupClientListeners() {
     if (!this.client) return;
 
@@ -339,6 +374,8 @@ class TelnyxService {
         if (!this.callStartTime) {
           this.callStartTime = new Date();
         }
+        // Ensure audio is playing when call is connected
+        this.ensureAudioPlaying();
         this.emitStatus(CallState.CONNECTED);
         break;
       case 'hangup':
