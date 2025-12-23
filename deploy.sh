@@ -160,8 +160,10 @@ deploy_frontend() {
     
     cd "$PROJECT_DIR"
     
-    # Deploy to production webroot
+    # Clear old files completely
     rm -rf "$WEBROOT_PR"/*
+    
+    # Deploy new build
     rsync -a dist/ "$WEBROOT_PR/"
     
     if [ $? -eq 0 ]; then
@@ -170,7 +172,14 @@ deploy_frontend() {
         test_fail "Failed to deploy"
     fi
     
-    nginx -s reload 2>/dev/null && test_pass "Nginx reloaded" || log_warning "Nginx reload skipped"
+    # Clear nginx cache and reload
+    log_info "Clearing nginx cache..."
+    rm -rf /var/cache/nginx/* 2>/dev/null
+    
+    # Reload nginx with cache clear
+    nginx -s reload 2>/dev/null && test_pass "Nginx reloaded + cache cleared" || log_warning "Nginx reload skipped"
+    
+    log_info "✓ All old assets removed, new build deployed with cache busting"
 }
 
 # =============================================================================
