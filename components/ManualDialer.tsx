@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Phone, Delete, Copy, RotateCcw, Check, Clock, User, Building, Mic, MicOff, Pause, Play, PhoneOff } from 'lucide-react';
 import { voiceService } from '../services/VoiceService';
 import { backendAPI } from '../services/BackendAPI';
+import { standardizePhoneNumber, isValidE164 } from '../utils/phoneUtils';
 
 interface Props {
   onCall: (phoneNumber: string) => void;
@@ -147,9 +148,9 @@ export const ManualDialer: React.FC<Props> = ({ onCall, disabled }) => {
   const handlePaste = async () => {
     try {
       const text = await navigator.clipboard.readText();
-      // Extract only digits, +, and common separators
-      const cleaned = text.replace(/[^\d+\-() ]/g, '');
-      setNumber(prev => prev + cleaned);
+      // Try to standardize the pasted number to E.164 format
+      const standardized = standardizePhoneNumber(text);
+      setNumber(standardized);
     } catch (err) {
       console.error('Failed to paste:', err);
     }
@@ -178,13 +179,17 @@ export const ManualDialer: React.FC<Props> = ({ onCall, disabled }) => {
   const handleCall = () => {
     if (disabled || isInCall) return;
     if (number.length > 3) {
-      setLastDialedNumber(number);
+      // Normalize the phone number to E.164 format before calling
+      const normalizedNumber = standardizePhoneNumber(number);
+      setNumber(normalizedNumber); // Update display to show normalized format
+      
+      setLastDialedNumber(normalizedNumber);
       setLastDialedName(prospectName);
       setLastDialedCompany(company);
       setCallStartTime(Date.now());
       setCallTimer(0);
       setIsInCall(true);
-      onCall(number);
+      onCall(normalizedNumber);
       // Get call ID after a brief delay
       setTimeout(() => {
         const callId = voiceService.getCurrentCallId();
@@ -346,10 +351,32 @@ export const ManualDialer: React.FC<Props> = ({ onCall, disabled }) => {
               type="text"
               value={number}
               onChange={(e) => setNumber(e.target.value)}
+              onBlur={(e) => {
+                // Auto-normalize on blur (when user clicks away)
+                if (e.target.value && e.target.value.length > 3) {
+                  const normalized = standardizePhoneNumber(e.target.value);
+                  setNumber(normalized);
+                }
+              }}
               placeholder="Enter phone number..."
               disabled={isInCall}
-              className="w-full text-3xl font-bold text-center text-gray-800 dark:text-white bg-transparent border-b-2 border-gray-300 dark:border-slate-600 pb-2 focus:outline-none focus:border-blue-500 transition-colors"
+              className={`w-full text-3xl font-bold text-center text-gray-800 dark:text-white bg-transparent border-b-2 pb-2 focus:outline-none transition-colors ${
+                number && number.length > 3
+                  ? isValidE164(number)
+                    ? 'border-green-500 focus:border-green-600'
+                    : 'border-yellow-500 focus:border-yellow-600'
+                  : 'border-gray-300 dark:border-slate-600 focus:border-blue-500'
+              }`}
             />
+            {number && number.length > 3 && (
+              <div className="text-xs text-center mt-1">
+                {isValidE164(number) ? (
+                  <span className="text-green-600 dark:text-green-400">✓ Valid E.164 format</span>
+                ) : (
+                  <span className="text-yellow-600 dark:text-yellow-400">⚠ Will be auto-formatted when calling</span>
+                )}
+              </div>
+            )}
             <div className="absolute right-0 top-0 flex gap-2">
               {number.length > 0 && !isInCall && (
                 <>
