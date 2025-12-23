@@ -101,6 +101,25 @@ class TelnyxService {
         throw new Error('Telnyx credentials missing: login and password are required');
       }
 
+      // Request microphone and speaker permissions
+      console.log('Requesting audio permissions...');
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          },
+          video: false 
+        });
+        console.log('✓ Audio permissions granted');
+        // Stop the stream - we're just checking permissions, Telnyx will handle the actual stream
+        stream.getTracks().forEach(track => track.stop());
+      } catch (permErr) {
+        console.warn('⚠ Audio permission denied or unavailable:', permErr);
+        // Don't throw - try to proceed anyway
+      }
+
       // Create audio element for remote audio if it doesn't exist
       this.ensureAudioElement();
 
@@ -158,9 +177,25 @@ class TelnyxService {
       audioEl = document.createElement('audio');
       audioEl.id = 'telnyx-remote-audio';
       audioEl.autoplay = true;
-      // Don't set muted - we want to hear the audio!
+      audioEl.playsinline = true; // Important for iOS
+      audioEl.controls = false; // Hide controls
+      // Ensure audio will play
+      audioEl.style.display = 'none';
       document.body.appendChild(audioEl);
-      console.log('Created Telnyx audio element');
+      console.log('✓ Created Telnyx audio element - ready for remote audio');
+      
+      // Log when audio plays
+      audioEl.addEventListener('play', () => {
+        console.log('🔊 Remote audio is playing');
+      });
+      audioEl.addEventListener('pause', () => {
+        console.log('🔇 Remote audio paused');
+      });
+      audioEl.addEventListener('error', (e) => {
+        console.error('❌ Audio element error:', audioEl.error);
+      });
+    } else {
+      console.log('✓ Telnyx audio element already exists');
     }
   }
 
@@ -202,10 +237,11 @@ class TelnyxService {
 
     // Handle notifications (call updates)
     this.client.on('telnyx.notification', (notification: INotification) => {
-      console.log('Telnyx notification:', notification.type);
+      console.log('🔔 Telnyx notification:', notification.type);
       
       // Handle call updates
       if (notification.type === 'callUpdate' && notification.call) {
+        console.log('📞 Call update - state:', notification.call.state);
         this.handleCallUpdate(notification.call);
       }
     });
@@ -219,6 +255,11 @@ class TelnyxService {
         console.log('📞 Incoming call detected!');
         // The call object will be available via notification events
       }
+    });
+
+    // Optional: Listen for audio stream events if available
+    this.client.on('telnyx.audioStream', (audioInfo: any) => {
+      console.log('🔊 Audio stream event:', audioInfo);
     });
   }
 
